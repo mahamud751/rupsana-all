@@ -1,0 +1,264 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  CUSTOMER
+  ADMIN
+}
+
+enum DeliveryArea {
+  INSIDE_DHAKA
+  OUTSIDE_DHAKA
+}
+
+enum OrderStatus {
+  PLACED
+  CONFIRMED
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  COD
+  BKASH
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  REFUNDED
+}
+
+enum AppointmentStatus {
+  REQUESTED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+model User {
+  id            String         @id @default(uuid())
+  name          String
+  phone         String         @unique
+  email         String?        @unique
+  passwordHash  String
+  role          Role           @default(CUSTOMER)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  addresses     Address[]
+  orders        Order[]
+  appointments  Appointment[]
+  wishlist      WishlistItem[]
+  notifications Notification[]
+}
+
+model Address {
+  id        String       @id @default(uuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName  String
+  phone     String
+  area      DeliveryArea
+  city      String
+  line      String
+  note      String?
+  isDefault Boolean      @default(false)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([userId])
+}
+
+model Category {
+  id        String    @id @default(uuid())
+  slug      String    @unique
+  name      String
+  imageUrl  String
+  sortOrder Int       @default(0)
+  isActive  Boolean   @default(true)
+  products  Product[]
+}
+
+model Product {
+  id             String         @id @default(uuid())
+  slug           String         @unique
+  name           String
+  subtitle       String
+  description    String
+  price          Int
+  compareAtPrice Int?
+  stock          Int            @default(0)
+  imageUrl       String
+  isBestseller   Boolean        @default(false)
+  isActive       Boolean        @default(true)
+  categoryId     String
+  category       Category       @relation(fields: [categoryId], references: [id])
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  wishlistedBy   WishlistItem[]
+  orderItems     OrderItem[]
+
+  @@index([categoryId])
+}
+
+model WishlistItem {
+  userId    String
+  productId String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([userId, productId])
+}
+
+model PromoCode {
+  code         String    @id
+  description  String
+  percentOff   Int?
+  amountOff    Int?
+  freeDelivery Boolean   @default(false)
+  minSubtotal  Int       @default(0)
+  usageLimit   Int?
+  usedCount    Int       @default(0)
+  expiresAt    DateTime?
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+}
+
+model Order {
+  id            String               @id @default(uuid())
+  number        Int                  @unique @default(autoincrement())
+  userId        String
+  user          User                 @relation(fields: [userId], references: [id])
+  status        OrderStatus          @default(PLACED)
+  subtotal      Int
+  deliveryFee   Int
+  discount      Int                  @default(0)
+  total         Int
+  promoCode     String?
+  paymentMethod PaymentMethod
+  paymentStatus PaymentStatus        @default(PENDING)
+  bkashTrxId    String?
+  shipName      String
+  shipPhone     String
+  shipArea      DeliveryArea
+  shipCity      String
+  shipLine      String
+  shipNote      String?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  items         OrderItem[]
+  history       OrderStatusHistory[]
+
+  @@index([userId])
+}
+
+model OrderItem {
+  id        String  @id @default(uuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  name      String
+  subtitle  String
+  imageUrl  String
+  price     Int
+  quantity  Int
+}
+
+model OrderStatusHistory {
+  id        String      @id @default(uuid())
+  orderId   String
+  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status    OrderStatus
+  note      String?
+  createdAt DateTime    @default(now())
+
+  @@index([orderId])
+}
+
+model Service {
+  id            String        @id @default(uuid())
+  name          String
+  durationLabel String
+  price         Int
+  sortOrder     Int           @default(0)
+  isActive      Boolean       @default(true)
+  appointments  Appointment[]
+}
+
+model Appointment {
+  id          String            @id @default(uuid())
+  userId      String
+  user        User              @relation(fields: [userId], references: [id])
+  serviceId   String
+  service     Service           @relation(fields: [serviceId], references: [id])
+  serviceName String
+  price       Int
+  date        DateTime          @db.Date
+  slot        String
+  name        String
+  phone       String
+  note        String?
+  status      AppointmentStatus @default(REQUESTED)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([userId])
+  @@index([date])
+}
+
+model Banner {
+  id           String  @id @default(uuid())
+  titleTop     String
+  titleBottom  String
+  description  String
+  cta          String
+  imageUrl     String
+  categorySlug String?
+  sortOrder    Int     @default(0)
+  isActive     Boolean @default(true)
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  body      String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Faq {
+  id        String @id @default(uuid())
+  question  String
+  answer    String
+  sortOrder Int    @default(0)
+}
+
+/// Single-row store settings (id is always 1).
+model StoreSettings {
+  id              Int    @id @default(1)
+  storeName       String
+  phone           String
+  whatsapp        String
+  email           String
+  bkashNumber     String
+  salonAddress    String
+  salonHours      String
+  deliveryInside  Int
+  deliveryOutside Int
+  timeSlots       String[]
+  slotCapacity    Int    @default(2)
+}

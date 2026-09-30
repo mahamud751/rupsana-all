@@ -1,0 +1,10 @@
+node_modules
+dist
+coverage
+.env
+src/generated
+# Uploaded images (keep the seed images)
+uploads/*
+!uploads/cat_*.jpg
+!uploads/hero*.jpg
+!uploads/p_*.jpg
