@@ -10,15 +10,16 @@ import {
   Screen,
   SummaryRow,
 } from '../components/ui';
-import { useStore } from '../context/StoreContext';
+import { useCart } from '../context/CartContext';
+import { useRequireAuth } from '../api/hooks';
 import { TabScreenProps } from '../navigation/types';
 import { colors, formatPrice } from '../theme';
 
 export default function BagScreen({ navigation }: TabScreenProps<'Bag'>) {
-  const { cart, cartCount, cartTotal, updateQuantity, removeFromCart } =
-    useStore();
+  const cart = useCart();
+  const requireAuth = useRequireAuth();
 
-  if (cart.length === 0) {
+  if (cart.items.length === 0) {
     return (
       <Screen>
         <ScreenTitle title="Your Bag" />
@@ -36,14 +37,14 @@ export default function BagScreen({ navigation }: TabScreenProps<'Bag'>) {
   return (
     <Screen>
       <FlatList
-        data={cart}
-        keyExtractor={i => i.product.id}
+        data={cart.items}
+        keyExtractor={i => i.productId}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={
           <ScreenTitle
             title="Your Bag"
-            subtitle={`${cartCount} ${cartCount === 1 ? 'item' : 'items'}`}
+            subtitle={`${cart.count} ${cart.count === 1 ? 'item' : 'items'}`}
           />
         }
         renderItem={({ item }) => (
@@ -51,27 +52,21 @@ export default function BagScreen({ navigation }: TabScreenProps<'Bag'>) {
             <Pressable
               onPress={() =>
                 navigation.navigate('ProductDetail', {
-                  productId: item.product.id,
+                  productId: item.productId,
                 })
               }
             >
-              <ProductThumb
-                source={item.product.image}
-                width={76}
-                height={86}
-              />
+              <ProductThumb source={item.imageUrl} width={76} height={86} />
             </Pressable>
             <View style={styles.flex}>
               <Text style={styles.name} numberOfLines={2}>
-                {item.product.name} {item.product.subtitle}
+                {item.name} {item.subtitle}
               </Text>
-              <Text style={styles.price}>
-                {formatPrice(item.product.price)}
-              </Text>
+              <Text style={styles.price}>{formatPrice(item.price)}</Text>
               <View style={styles.qtyRow}>
                 <Pressable
                   hitSlop={6}
-                  onPress={() => updateQuantity(item.product.id, -1)}
+                  onPress={() => cart.change(item.productId, -1)}
                   style={styles.qtyBtn}
                 >
                   <Icon name="minus" size={14} strokeWidth={2} />
@@ -79,17 +74,14 @@ export default function BagScreen({ navigation }: TabScreenProps<'Bag'>) {
                 <Text style={styles.qty}>{item.quantity}</Text>
                 <Pressable
                   hitSlop={6}
-                  onPress={() => updateQuantity(item.product.id, 1)}
+                  onPress={() => cart.change(item.productId, 1)}
                   style={styles.qtyBtn}
                 >
                   <Icon name="plus" size={14} strokeWidth={2} />
                 </Pressable>
               </View>
             </View>
-            <Pressable
-              hitSlop={8}
-              onPress={() => removeFromCart(item.product.id)}
-            >
+            <Pressable hitSlop={8} onPress={() => cart.remove(item.productId)}>
               <Icon name="trash" size={20} color={colors.textMuted} />
             </Pressable>
           </View>
@@ -98,13 +90,14 @@ export default function BagScreen({ navigation }: TabScreenProps<'Bag'>) {
       />
 
       <View style={styles.summary}>
-        <SummaryRow label="Subtotal" value={formatPrice(cartTotal)} />
+        <SummaryRow label="Subtotal" value={formatPrice(cart.subtotal)} />
         <Text style={styles.note}>
-          Delivery charge and promo codes are applied at checkout.
+          Delivery charge, promo codes and final prices are confirmed at
+          checkout.
         </Text>
         <GoldButton
-          title={`Checkout · ${formatPrice(cartTotal)}`}
-          onPress={() => navigation.navigate('Checkout')}
+          title={`Checkout · ${formatPrice(cart.subtotal)}`}
+          onPress={() => requireAuth(() => navigation.navigate('Checkout'))}
         />
       </View>
     </Screen>

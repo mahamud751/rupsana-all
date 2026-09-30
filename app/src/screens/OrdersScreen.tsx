@@ -1,8 +1,24 @@
 import React from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  FlatList,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import Icon from '../components/Icon';
-import { EmptyState, Screen, StackHeader, StatusPill } from '../components/ui';
-import { useStore } from '../context/StoreContext';
+import {
+  EmptyState,
+  ErrorView,
+  LoadingView,
+  Screen,
+  StackHeader,
+  StatusPill,
+} from '../components/ui';
+import { useOrders } from '../api/hooks';
+import { errorMessage } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 import { RootScreenProps } from '../navigation/types';
 import { colors, formatPrice } from '../theme';
 import { formatDate } from '../utils';
@@ -10,61 +26,92 @@ import { formatDate } from '../utils';
 export default function OrdersScreen({
   navigation,
 }: RootScreenProps<'Orders'>) {
-  const { orders } = useStore();
+  const { user } = useAuth();
+  const orders = useOrders();
 
   return (
     <Screen>
       <StackHeader title="My Orders" />
-      <FlatList
-        data={orders}
-        keyExtractor={o => o.id}
-        contentContainerStyle={styles.list}
-        ListEmptyComponent={
-          <EmptyState
-            icon="box"
-            title="No orders yet"
-            text="When you place an order, you can track it here."
-            action="Start Shopping"
-            onAction={() =>
-              navigation.navigate('Tabs', {
-                screen: 'Shop',
-                params: { category: undefined },
-              })
-            }
-          />
-        }
-        renderItem={({ item }) => {
-          const count = item.items.reduce((s, i) => s + i.quantity, 0);
-          return (
-            <Pressable
-              onPress={() =>
-                navigation.navigate('OrderDetail', { orderId: item.id })
+      {!user ? (
+        <EmptyState
+          icon="user"
+          title="Sign in to see your orders"
+          text="Your orders are saved to your account."
+          action="Sign In"
+          onAction={() => navigation.navigate('SignIn')}
+        />
+      ) : orders.isLoading ? (
+        <LoadingView />
+      ) : orders.error ? (
+        <ErrorView
+          message={errorMessage(orders.error)}
+          onRetry={() => orders.refetch()}
+        />
+      ) : (
+        <FlatList
+          data={orders.data}
+          keyExtractor={o => o.id}
+          contentContainerStyle={styles.list}
+          refreshControl={
+            <RefreshControl
+              refreshing={orders.isRefetching}
+              onRefresh={() => {
+                orders.refetch();
+              }}
+              tintColor={colors.gold}
+              colors={[colors.gold]}
+            />
+          }
+          ListEmptyComponent={
+            <EmptyState
+              icon="box"
+              title="No orders yet"
+              text="When you place an order, you can track it here."
+              action="Start Shopping"
+              onAction={() =>
+                navigation.navigate('Tabs', {
+                  screen: 'Shop',
+                  params: { category: undefined },
+                })
               }
-              style={({ pressed }) => [styles.card, pressed && styles.pressed]}
-            >
-              <View style={styles.row}>
-                <View style={styles.icon}>
-                  <Icon name="box" size={22} />
+            />
+          }
+          renderItem={({ item }) => {
+            const count = item.items.reduce((s, i) => s + i.quantity, 0);
+            return (
+              <Pressable
+                onPress={() =>
+                  navigation.navigate('OrderDetail', { orderId: item.id })
+                }
+                style={({ pressed }) => [
+                  styles.card,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <View style={styles.row}>
+                  <View style={styles.icon}>
+                    <Icon name="box" size={22} />
+                  </View>
+                  <View style={styles.flex}>
+                    <Text style={styles.id}>Order {item.reference}</Text>
+                    <Text style={styles.meta}>
+                      {formatDate(item.createdAt)} · {count}{' '}
+                      {count === 1 ? 'item' : 'items'}
+                    </Text>
+                  </View>
+                  <StatusPill status={item.status} />
                 </View>
-                <View style={styles.flex}>
-                  <Text style={styles.id}>Order #{item.id}</Text>
-                  <Text style={styles.meta}>
-                    {formatDate(item.createdAt)} · {count}{' '}
-                    {count === 1 ? 'item' : 'items'}
+                <View style={styles.bottom}>
+                  <Text style={styles.names} numberOfLines={1}>
+                    {item.items.map(i => i.name).join(', ')}
                   </Text>
+                  <Text style={styles.total}>{formatPrice(item.total)}</Text>
                 </View>
-                <StatusPill status={item.status} />
-              </View>
-              <View style={styles.bottom}>
-                <Text style={styles.names} numberOfLines={1}>
-                  {item.items.map(i => i.name).join(', ')}
-                </Text>
-                <Text style={styles.total}>{formatPrice(item.total)}</Text>
-              </View>
-            </Pressable>
-          );
-        }}
-      />
+              </Pressable>
+            );
+          }}
+        />
+      )}
     </Screen>
   );
 }

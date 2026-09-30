@@ -9,8 +9,7 @@ import {
   Screen,
   SummaryRow,
 } from '../components/ui';
-import { useStore } from '../context/StoreContext';
-import { storeConfig } from '../config';
+import { useOrder, useSettings } from '../api/hooks';
 import { RootScreenProps } from '../navigation/types';
 import { colors, fonts, formatPrice } from '../theme';
 import { formatDateTime } from '../utils';
@@ -19,8 +18,8 @@ export default function OrderSuccessScreen({
   navigation,
   route,
 }: RootScreenProps<'OrderSuccess'>) {
-  const { orders } = useStore();
-  const order = orders.find(o => o.id === route.params.orderId);
+  const order = useOrder(route.params.orderId).data;
+  const settings = useSettings().data;
 
   const goHome = () =>
     navigation.dispatch(
@@ -66,7 +65,7 @@ export default function OrderSuccessScreen({
 
         {order && (
           <Card style={styles.card}>
-            <SummaryRow label="Order number" value={`#${order.id}`} />
+            <SummaryRow label="Order number" value={order.reference} />
             <SummaryRow
               label="Placed on"
               value={formatDateTime(order.createdAt)}
@@ -74,24 +73,19 @@ export default function OrderSuccessScreen({
             <SummaryRow
               label="Payment"
               value={
-                order.payment.method === 'cod' ? 'Cash on Delivery' : 'bKash'
+                order.paymentMethod === 'COD' ? 'Cash on Delivery' : 'bKash'
               }
             />
-            <SummaryRow label="Deliver to" value={`${order.address.city}`} />
+            <SummaryRow label="Deliver to" value={order.shipCity} />
             <View style={styles.divider} />
             <SummaryRow label="Total" value={formatPrice(order.total)} strong />
-            {order.payment.method === 'cod' && (
-              <Text style={styles.note}>
-                Please keep {formatPrice(order.total)} ready in cash when the
-                rider arrives.
-              </Text>
-            )}
-            {order.payment.method === 'bkash' && (
-              <Text style={styles.note}>
-                We'll verify your bKash payment (TrxID {order.payment.trxId})
-                before shipping.
-              </Text>
-            )}
+            <Text style={styles.note}>
+              {order.paymentMethod === 'COD'
+                ? `Please keep ${formatPrice(
+                    order.total,
+                  )} ready in cash when the rider arrives.`
+                : `We'll verify your bKash payment (TrxID ${order.bkashTrxId}) before shipping.`}
+            </Text>
           </Card>
         )}
 
@@ -101,9 +95,11 @@ export default function OrderSuccessScreen({
           onPress={goHome}
           style={styles.btn}
         />
-        <Text style={styles.help}>
-          Questions? Call us at {storeConfig.phone}
-        </Text>
+        {settings && (
+          <Text style={styles.help}>
+            Questions? Call us at {settings.phone}
+          </Text>
+        )}
       </ScrollView>
     </Screen>
   );

@@ -10,6 +10,7 @@ import { AppointmentStatus } from '../generated/prisma/enums.js';
 import { Prisma } from '../generated/prisma/client.js';
 import { paginate } from '../common/dto/pagination.dto.js';
 import {
+  friendlyDay,
   normalizePhone,
   parseDateOnly,
   todayDateOnly,
@@ -136,7 +137,7 @@ export class SalonService {
           data: {
             userId,
             title: 'Appointment requested',
-            body: `${service.name} on ${dto.date} at ${dto.slot} ${STATUS_MESSAGE.REQUESTED}`,
+            body: `${service.name} on ${friendlyDay(parseDateOnly(dto.date))} at ${dto.slot} ${STATUS_MESSAGE.REQUESTED}`,
           },
         });
         return appointment;
@@ -195,7 +196,7 @@ export class SalonService {
         where: { id },
         data: { status },
       });
-      const day = appointment.date.toISOString().slice(0, 10);
+      const day = friendlyDay(appointment.date);
       await tx.notification.create({
         data: {
           userId: appointment.userId,

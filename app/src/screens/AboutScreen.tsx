@@ -3,13 +3,14 @@ import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Logo from '../components/Logo';
 import { InfoStrip } from '../components/Promo';
 import { Card, Screen, StackHeader } from '../components/ui';
-import { heroSlides } from '../data';
-import { storeConfig } from '../config';
+import { useSettings } from '../api/hooks';
+import { imageUri } from '../api/config';
 import { colors, serifMediumItalic } from '../theme';
 
 const version = require('../../package.json').version as string;
 
 export default function AboutScreen() {
+  const storeConfig = useSettings().data;
   return (
     <Screen>
       <StackHeader title="About" />
@@ -17,7 +18,10 @@ export default function AboutScreen() {
         <View style={styles.logo}>
           <Logo />
         </View>
-        <Image source={heroSlides[0].image} style={styles.image} />
+        <Image
+          source={{ uri: imageUri('/uploads/hero.jpg') }}
+          style={styles.image}
+        />
         <Text style={styles.heading}>Your bridal look starts here</Text>
         <Text style={styles.body}>
           Rupsuhana brings together premium bridal jewellery, makeup, hair
@@ -29,16 +33,18 @@ export default function AboutScreen() {
           personal consultations for holud, wedding and reception looks.
         </Text>
 
-        <Card style={styles.card}>
-          <Text style={styles.label}>Salon</Text>
-          <Text style={styles.value}>{storeConfig.salonAddress}</Text>
-          <Text style={styles.label}>Opening hours</Text>
-          <Text style={styles.value}>{storeConfig.salonHours}</Text>
-          <Text style={styles.label}>Contact</Text>
-          <Text style={styles.value}>
-            {storeConfig.phone} · {storeConfig.email}
-          </Text>
-        </Card>
+        {storeConfig && (
+          <Card style={styles.card}>
+            <Text style={styles.label}>Salon</Text>
+            <Text style={styles.value}>{storeConfig.salonAddress}</Text>
+            <Text style={styles.label}>Opening hours</Text>
+            <Text style={styles.value}>{storeConfig.salonHours}</Text>
+            <Text style={styles.label}>Contact</Text>
+            <Text style={styles.value}>
+              {storeConfig.phone} · {storeConfig.email}
+            </Text>
+          </Card>
+        )}
         <InfoStrip />
         <Text style={styles.version}>Version {version}</Text>
       </ScrollView>

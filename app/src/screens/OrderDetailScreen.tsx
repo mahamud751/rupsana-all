@@ -1,9 +1,18 @@
 import React from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  Alert,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import Icon from '../components/Icon';
 import {
   Card,
-  EmptyState,
+  ErrorView,
+  LoadingView,
   OutlineButton,
   ProductThumb,
   Screen,
@@ -12,49 +21,56 @@ import {
   StatusPill,
   SummaryRow,
 } from '../components/ui';
-import { OrderStatus, useStore } from '../context/StoreContext';
-import { getProduct } from '../data';
+import { useCancelOrder, useOrder } from '../api/hooks';
+import { errorMessage } from '../api/client';
+import { OrderStatus } from '../api/types';
 import { RootScreenProps } from '../navigation/types';
 import { colors, formatPrice } from '../theme';
 import { formatDateTime } from '../utils';
 
 const STEPS: { status: OrderStatus; label: string; text: string }[] = [
   {
-    status: 'placed',
+    status: 'PLACED',
     label: 'Order placed',
     text: 'We have received your order',
   },
   {
-    status: 'confirmed',
+    status: 'CONFIRMED',
     label: 'Confirmed',
     text: 'Our team has confirmed it by phone',
   },
-  { status: 'shipped', label: 'Shipped', text: 'Your order is on the way' },
-  { status: 'delivered', label: 'Delivered', text: 'Enjoy your purchase!' },
+  { status: 'SHIPPED', label: 'Shipped', text: 'Your order is on the way' },
+  { status: 'DELIVERED', label: 'Delivered', text: 'Enjoy your purchase!' },
 ];
 
 export default function OrderDetailScreen({
   navigation,
   route,
 }: RootScreenProps<'OrderDetail'>) {
-  const { orders, cancelOrder } = useStore();
-  const order = orders.find(o => o.id === route.params.orderId);
+  const query = useOrder(route.params.orderId);
+  const cancel = useCancelOrder();
+  const order = query.data;
 
   if (!order) {
     return (
       <Screen>
         <StackHeader title="Order" />
-        <EmptyState
-          icon="box"
-          title="Order not found"
-          text="This order no longer exists."
-        />
+        {query.isLoading ? (
+          <LoadingView />
+        ) : (
+          <ErrorView
+            message={errorMessage(query.error)}
+            onRetry={() => query.refetch()}
+          />
+        )}
       </Screen>
     );
   }
 
-  const cancelled = order.status === 'cancelled';
+  const cancelled = order.status === 'CANCELLED';
   const reached = STEPS.findIndex(s => s.status === order.status);
+  const whenReached = (status: OrderStatus) =>
+    order.history.find(h => h.status === status)?.createdAt;
 
   const confirmCancel = () =>
     Alert.alert('Cancel this order?', 'This cannot be undone.', [
@@ -62,26 +78,48 @@ export default function OrderDetailScreen({
       {
         text: 'Cancel order',
         style: 'destructive',
-        onPress: () => cancelOrder(order.id),
+        onPress: () =>
+          cancel.mutate(order.id, {
+            onError: e => Alert.alert('Could not cancel', errorMessage(e)),
+          }),
       },
     ]);
 
   return (
     <Screen>
-      <StackHeader title={`Order #${order.id}`} />
-      <ScrollView contentContainerStyle={styles.content}>
+      <StackHeader title={`Order ${order.reference}`} />
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={query.isRefetching}
+            onRefresh={() => {
+              query.refetch();
+            }}
+            tintColor={colors.gold}
+            colors={[colors.gold]}
+          />
+        }
+      >
         <Card>
           <View style={styles.topRow}>
             <Text style={styles.date}>{formatDateTime(order.createdAt)}</Text>
             <StatusPill status={order.status} />
           </View>
           {cancelled ? (
-            <Text style={styles.cancelled}>This order was cancelled.</Text>
+            <Text style={styles.cancelled}>
+              This order was cancelled
+              {whenReached('CANCELLED')
+                ? ` on ${formatDateTime(whenReached('CANCELLED')!)}`
+                : ''}
+              .
+            </Text>
           ) : (
             <View style={styles.timeline}>
               {STEPS.map((step, i) => {
                 const done = i <= reached;
                 const last = i === STEPS.length - 1;
+                const at = whenReached(step.status);
                 return (
                   <View key={step.status} style={styles.step}>
                     <View style={styles.rail}>
@@ -105,7 +143,9 @@ export default function OrderDetailScreen({
                       <Text style={[styles.stepLabel, !done && styles.muted]}>
                         {step.label}
                       </Text>
-                      <Text style={styles.stepSub}>{step.text}</Text>
+                      <Text style={styles.stepSub}>
+                        {at ? formatDateTime(at) : step.text}
+                      </Text>
                     </View>
                   </View>
                 );
@@ -116,27 +156,28 @@ export default function OrderDetailScreen({
 
         <SectionTitle>Items</SectionTitle>
         <Card>
-          {order.items.map(item => {
-            const product = getProduct(item.productId);
-            return (
-              <View key={item.productId} style={styles.item}>
-                {product && (
-                  <ProductThumb source={product.image} width={48} height={54} />
-                )}
-                <View style={styles.flex}>
-                  <Text style={styles.itemName} numberOfLines={2}>
-                    {item.name} {item.subtitle}
-                  </Text>
-                  <Text style={styles.itemQty}>
-                    {item.quantity} × {formatPrice(item.price)}
-                  </Text>
-                </View>
-                <Text style={styles.itemTotal}>
-                  {formatPrice(item.price * item.quantity)}
+          {order.items.map(item => (
+            <Pressable
+              key={item.id}
+              onPress={() =>
+                navigation.push('ProductDetail', { productId: item.productId })
+              }
+              style={styles.item}
+            >
+              <ProductThumb source={item.imageUrl} width={48} height={54} />
+              <View style={styles.flex}>
+                <Text style={styles.itemName} numberOfLines={2}>
+                  {item.name} {item.subtitle}
+                </Text>
+                <Text style={styles.itemQty}>
+                  {item.quantity} × {formatPrice(item.price)}
                 </Text>
               </View>
-            );
-          })}
+              <Text style={styles.itemTotal}>
+                {formatPrice(item.price * item.quantity)}
+              </Text>
+            </Pressable>
+          ))}
           <View style={styles.divider} />
           <SummaryRow label="Subtotal" value={formatPrice(order.subtotal)} />
           <SummaryRow
@@ -156,39 +197,42 @@ export default function OrderDetailScreen({
 
         <SectionTitle>Delivery address</SectionTitle>
         <Card>
-          <Text style={styles.addrName}>{order.address.fullName}</Text>
-          <Text style={styles.addr}>{order.address.phone}</Text>
+          <Text style={styles.addrName}>{order.shipName}</Text>
+          <Text style={styles.addr}>{order.shipPhone}</Text>
           <Text style={styles.addr}>
-            {order.address.line}, {order.address.city}
+            {order.shipLine}, {order.shipCity}
           </Text>
           <Text style={styles.addr}>
-            {order.address.area === 'inside' ? 'Inside Dhaka' : 'Outside Dhaka'}
+            {order.shipArea === 'INSIDE_DHAKA'
+              ? 'Inside Dhaka'
+              : 'Outside Dhaka'}
           </Text>
-          {!!order.address.note && (
-            <Text style={styles.addrNote}>Note: {order.address.note}</Text>
+          {!!order.shipNote && (
+            <Text style={styles.addrNote}>Note: {order.shipNote}</Text>
           )}
         </Card>
 
         <SectionTitle>Payment</SectionTitle>
         <Card style={styles.payRow}>
           <Icon
-            name={order.payment.method === 'cod' ? 'cash' : 'wallet'}
+            name={order.paymentMethod === 'COD' ? 'cash' : 'wallet'}
             size={22}
           />
           <View style={styles.flex}>
             <Text style={styles.addrName}>
-              {order.payment.method === 'cod' ? 'Cash on Delivery' : 'bKash'}
+              {order.paymentMethod === 'COD' ? 'Cash on Delivery' : 'bKash'}
             </Text>
-            {order.payment.trxId && (
-              <Text style={styles.addr}>TrxID: {order.payment.trxId}</Text>
+            {order.bkashTrxId && (
+              <Text style={styles.addr}>TrxID: {order.bkashTrxId}</Text>
             )}
           </View>
+          <StatusPill status={order.paymentStatus} />
         </Card>
 
         <View style={styles.actions}>
-          {order.status === 'placed' && (
+          {order.status === 'PLACED' && (
             <OutlineButton
-              title="Cancel Order"
+              title={cancel.isPending ? 'Cancelling…' : 'Cancel Order'}
               danger
               icon="close"
               onPress={confirmCancel}

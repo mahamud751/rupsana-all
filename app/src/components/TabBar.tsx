@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import Icon, { IconName } from './Icon';
-import { useStore } from '../context/StoreContext';
+import { useCart } from '../context/CartContext';
 import { colors } from '../theme';
 
 const TABS: Record<string, { label: string; icon: IconName }> = {
@@ -15,7 +15,7 @@ const TABS: Record<string, { label: string; icon: IconName }> = {
 
 export default function TabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
-  const { cartCount } = useStore();
+  const { count: cartCount } = useCart();
 
   return (
     <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 10) }]}>

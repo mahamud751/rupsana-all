@@ -1,6 +1,7 @@
 import React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { categories, CategoryId } from '../data';
+import { Category } from '../api/types';
+import { imageUri } from '../api/config';
 import { colors, SCREEN_WIDTH } from '../theme';
 
 const GAP = 6;
@@ -8,24 +9,34 @@ const TILE_WIDTH = (SCREEN_WIDTH - 32 - GAP * 4) / 5;
 const CIRCLE = TILE_WIDTH - 10;
 
 export default function CategoryList({
+  categories,
   onSelect,
 }: {
-  onSelect?: (id: CategoryId) => void;
+  categories?: Category[];
+  onSelect?: (slug: string) => void;
 }) {
+  // Placeholder tiles while loading keep the layout from jumping.
+  const items = categories ?? Array.from({ length: 5 }, () => null);
   return (
     <View style={styles.row}>
-      {categories.map(c => (
+      {items.slice(0, 5).map((c, i) => (
         <Pressable
-          key={c.id}
-          onPress={() => onSelect?.(c.id)}
+          key={c?.id ?? i}
+          disabled={!c}
+          onPress={() => c && onSelect?.(c.slug)}
           style={({ pressed }) => [styles.tile, pressed && styles.pressed]}
         >
           <View style={styles.circle}>
-            <Image source={c.image} style={styles.image} />
+            {c && (
+              <Image
+                source={{ uri: imageUri(c.imageUrl) }}
+                style={styles.image}
+              />
+            )}
           </View>
           <View style={styles.labelBox}>
             <Text style={styles.label} numberOfLines={2}>
-              {c.label}
+              {c?.name ?? ' '}
             </Text>
           </View>
         </Pressable>

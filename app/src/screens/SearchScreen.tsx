@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import {
   FlatList,
   Pressable,
@@ -9,8 +9,10 @@ import {
 } from 'react-native';
 import Icon from '../components/Icon';
 import ProductCard from '../components/ProductCard';
-import { EmptyState, Screen } from '../components/ui';
-import { categories, products } from '../data';
+import { EmptyState, ErrorView, LoadingView, Screen } from '../components/ui';
+import { useCategories, useProducts } from '../api/hooks';
+import { errorMessage } from '../api/client';
+import { useDebounced } from '../utils';
 import { RootScreenProps } from '../navigation/types';
 import { colors, SCREEN_WIDTH } from '../theme';
 
@@ -22,17 +24,10 @@ export default function SearchScreen({
   navigation,
 }: RootScreenProps<'Search'>) {
   const [query, setQuery] = useState('');
-  const q = query.trim().toLowerCase();
-
-  const results = useMemo(() => {
-    if (!q) {
-      return [];
-    }
-    return products.filter(p => {
-      const category = categories.find(c => c.id === p.category)?.label ?? '';
-      return `${p.name} ${p.subtitle} ${category}`.toLowerCase().includes(q);
-    });
-  }, [q]);
+  const q = useDebounced(query.trim(), 300);
+  const categories = useCategories().data ?? [];
+  const search = useProducts({ q }, q.length > 0);
+  const results = search.data?.items ?? [];
 
   return (
     <Screen>
@@ -64,7 +59,7 @@ export default function SearchScreen({
         </View>
       </View>
 
-      {!q ? (
+      {!query.trim() ? (
         <View style={styles.popular}>
           <Text style={styles.heading}>Popular searches</Text>
           <View style={styles.chips}>
@@ -85,12 +80,12 @@ export default function SearchScreen({
               onPress={() =>
                 navigation.navigate('Tabs', {
                   screen: 'Shop',
-                  params: { category: c.id },
+                  params: { category: c.slug },
                 })
               }
               style={styles.catRow}
             >
-              <Text style={styles.catText}>{c.label.replace('\n', ' ')}</Text>
+              <Text style={styles.catText}>{c.name}</Text>
               <Icon name="chevronRight" size={18} />
             </Pressable>
           ))}
@@ -104,17 +99,25 @@ export default function SearchScreen({
           columnWrapperStyle={styles.column}
           contentContainerStyle={styles.results}
           ListHeaderComponent={
-            <Text style={styles.count}>
-              {results.length} {results.length === 1 ? 'result' : 'results'} for
-              “{query.trim()}”
-            </Text>
+            results.length > 0 ? (
+              <Text style={styles.count}>
+                {results.length} {results.length === 1 ? 'result' : 'results'}{' '}
+                for “{q}”
+              </Text>
+            ) : undefined
           }
           ListEmptyComponent={
-            <EmptyState
-              icon="search"
-              title="No results"
-              text="Try a different word, like “necklace” or “makeup”."
-            />
+            search.isLoading || q !== query.trim() ? (
+              <LoadingView />
+            ) : search.error ? (
+              <ErrorView message={errorMessage(search.error)} />
+            ) : (
+              <EmptyState
+                icon="search"
+                title="No results"
+                text="Try a different word, like “necklace” or “makeup”."
+              />
+            )
           }
           renderItem={({ item }) => (
             <ProductCard product={item} width={CARD_WIDTH} />

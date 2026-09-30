@@ -3,14 +3,18 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Icon, { IconName } from '../components/Icon';
 import Logo from '../components/Logo';
 import { Screen } from '../components/ui';
-import { useStore } from '../context/StoreContext';
-import { categories } from '../data';
-import { storeConfig } from '../config';
+import { useAuth } from '../context/AuthContext';
+import { useCart } from '../context/CartContext';
+import { useCategories, useSettings, useUnreadCount } from '../api/hooks';
 import { RootScreenProps } from '../navigation/types';
 import { colors, fonts } from '../theme';
 
 export default function MenuScreen({ navigation }: RootScreenProps<'Menu'>) {
-  const { profile, cartCount, unreadCount } = useStore();
+  const { user: profile } = useAuth();
+  const cartCount = useCart().count;
+  const unreadCount = useUnreadCount().data?.unread ?? 0;
+  const categories = useCategories().data ?? [];
+  const storeConfig = useSettings().data;
 
   const go = (fn: () => void) => () => {
     navigation.goBack();
@@ -143,21 +147,23 @@ export default function MenuScreen({ navigation }: RootScreenProps<'Menu'>) {
               onPress={go(() =>
                 navigation.navigate('Tabs', {
                   screen: 'Shop',
-                  params: { category: c.id },
+                  params: { category: c.slug },
                 }),
               )}
               style={styles.cat}
             >
-              <Text style={styles.catText}>{c.label.replace('\n', ' ')}</Text>
+              <Text style={styles.catText}>{c.name}</Text>
             </Pressable>
           ))}
         </View>
 
-        <Text style={styles.footer}>
-          {storeConfig.salonHours}
-          {'\n'}
-          {storeConfig.phone}
-        </Text>
+        {storeConfig && (
+          <Text style={styles.footer}>
+            {storeConfig.salonHours}
+            {'\n'}
+            {storeConfig.phone}
+          </Text>
+        )}
       </ScrollView>
     </Screen>
   );

@@ -342,6 +342,30 @@ async function main() {
     },
   });
 
+  // Demo customer for trying the app.
+  await prisma.user.upsert({
+    where: { phone: '01711111111' },
+    update: {},
+    create: {
+      name: 'Demo Customer',
+      phone: '01711111111',
+      email: 'demo@rupsuhana.com',
+      passwordHash: await bcrypt.hash('123456', 10),
+      notifications: {
+        create: [
+          {
+            title: 'Welcome to Rupsuhana ✨',
+            body: 'Discover bridal jewellery, makeup and more — delivered across Bangladesh.',
+          },
+          {
+            title: 'Bridal offer: 10% off',
+            body: 'Use code BRIDE10 at checkout to get 10% off your order.',
+          },
+        ],
+      },
+    },
+  });
+
   console.log('Seed complete.');
 }
 

@@ -4,17 +4,18 @@ import {
 } from '@react-navigation/native';
 import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { CategoryId } from '../data';
 
 export type TabParamList = {
   Home: undefined;
-  Shop: { category?: CategoryId } | undefined;
+  /** category is a category slug, e.g. "makeup" */
+  Shop: { category?: string } | undefined;
   Book: undefined;
   Bag: undefined;
 };
 
 export type RootStackParamList = {
   Tabs: NavigatorScreenParams<TabParamList> | undefined;
+  /** Product id or slug */
   ProductDetail: { productId: string };
   Search: undefined;
   Wishlist: undefined;
@@ -26,6 +27,9 @@ export type RootStackParamList = {
   OrderDetail: { orderId: string };
   Appointments: undefined;
   Profile: undefined;
+  Addresses: undefined;
+  SignIn: undefined;
+  Register: undefined;
   Help: undefined;
   About: undefined;
 };

@@ -3,12 +3,12 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import Icon from './Icon';
 import Logo from './Logo';
 import { useNavigation } from '@react-navigation/native';
-import { useStore } from '../context/StoreContext';
+import { useUnreadCount } from '../api/hooks';
 import { colors } from '../theme';
 
 export function Header() {
   const navigation = useNavigation();
-  const { unreadCount } = useStore();
+  const unreadCount = useUnreadCount().data?.unread ?? 0;
   return (
     <View style={styles.header}>
       <Pressable

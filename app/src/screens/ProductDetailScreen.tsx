@@ -14,13 +14,22 @@ import Icon from '../components/Icon';
 import ProductCard from '../components/ProductCard';
 import { InfoStrip } from '../components/Promo';
 import {
-  categories,
-  categoryDescriptions,
-  getProduct,
-  products,
-} from '../data';
-import { useStore } from '../context/StoreContext';
-import { EmptyState, Screen, StackHeader } from '../components/ui';
+  EmptyState,
+  ErrorView,
+  LoadingView,
+  Screen,
+  StackHeader,
+} from '../components/ui';
+import { useCart } from '../context/CartContext';
+import {
+  useProduct,
+  useRequireAuth,
+  useToggleWishlist,
+  useWishlist,
+} from '../api/hooks';
+import { ApiError, errorMessage } from '../api/client';
+import { imageUri } from '../api/config';
+import { ProductDetail as ProductDetailData } from '../api/types';
 import { RootScreenProps } from '../navigation/types';
 import { colors, fonts, formatPrice, SCREEN_WIDTH } from '../theme';
 
@@ -34,43 +43,52 @@ export default function ProductDetailScreen({
   navigation,
   route,
 }: RootScreenProps<'ProductDetail'>) {
-  const product = getProduct(route.params.productId);
-  if (!product) {
-    return (
-      <Screen>
-        <StackHeader title="Product" />
+  const query = useProduct(route.params.productId);
+  if (query.data) {
+    return <ProductDetail product={query.data} navigation={navigation} />;
+  }
+  return (
+    <Screen>
+      <StackHeader title="Product" />
+      {query.isLoading ? (
+        <LoadingView />
+      ) : query.error instanceof ApiError && query.error.status === 404 ? (
         <EmptyState
           icon="bag"
           title="Product not found"
           text="This product is no longer available."
         />
-      </Screen>
-    );
-  }
-  return <ProductDetail product={product} navigation={navigation} />;
+      ) : (
+        <ErrorView
+          message={errorMessage(query.error)}
+          onRetry={() => query.refetch()}
+        />
+      )}
+    </Screen>
+  );
 }
 
 function ProductDetail({
   product,
   navigation,
 }: {
-  product: NonNullable<ReturnType<typeof getProduct>>;
+  product: ProductDetailData;
   navigation: RootScreenProps<'ProductDetail'>['navigation'];
 }) {
   const insets = useSafeAreaInsets();
-  const { addToCart, toggleWishlist, isWishlisted } = useStore();
+  const cart = useCart();
+  const requireAuth = useRequireAuth();
+  const wishlist = useWishlist();
+  const toggle = useToggleWishlist();
   const [quantity, setQuantity] = useState(1);
   const [added, setAdded] = useState(false);
-  const liked = isWishlisted(product.id);
-  const category = categories.find(c => c.id === product.category);
-  const related = products.filter(
-    p => p.id !== product.id && p.category === product.category,
-  );
-  const alsoLike = related.length
-    ? related
-    : products.filter(p => p.id !== product.id).slice(0, 4);
+  const liked = !!wishlist.data?.productIds.includes(product.id);
+  const inBag = cart.items.find(i => i.productId === product.id)?.quantity ?? 0;
+  const maxQty = Math.max(0, product.stock - inBag);
+  const soldOut = product.stock <= 0;
+  const alsoLike = product.related;
 
-  const addQuantity = () => addToCart(product, quantity);
+  const addQuantity = () => cart.add(product, Math.min(quantity, maxQty));
 
   const handleAdd = () => {
     addQuantity();
@@ -90,7 +108,10 @@ function ProductDetail({
         contentContainerStyle={styles.content}
       >
         <View style={styles.imageWrap}>
-          <Image source={product.image} style={styles.image} />
+          <Image
+            source={{ uri: imageUri(product.imageUrl) }}
+            style={styles.image}
+          />
           <View style={styles.topBar}>
             <Pressable
               onPress={() => navigation.goBack()}
@@ -105,7 +126,11 @@ function ProductDetail({
               />
             </Pressable>
             <Pressable
-              onPress={() => toggleWishlist(product.id)}
+              onPress={() =>
+                requireAuth(() =>
+                  toggle.mutate({ productId: product.id, liked }),
+                )
+              }
               hitSlop={8}
               style={styles.roundBtn}
             >
@@ -121,27 +146,36 @@ function ProductDetail({
         </View>
 
         <View style={styles.body}>
-          {category && (
-            <Text style={styles.category}>
-              {category.label.replace('\n', ' ').toUpperCase()}
-            </Text>
-          )}
+          <Text style={styles.category}>
+            {product.category.name.toUpperCase()}
+          </Text>
           <Text style={styles.name}>
             {product.name} {product.subtitle}
           </Text>
           <View style={styles.priceRow}>
             <Text style={styles.price}>{formatPrice(product.price)}</Text>
-            {product.bestseller && (
+            {!!product.compareAtPrice && (
+              <Text style={styles.compare}>
+                {formatPrice(product.compareAtPrice)}
+              </Text>
+            )}
+            {product.isBestseller && (
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>Bestseller</Text>
               </View>
             )}
           </View>
 
-          <Text style={styles.sectionTitle}>Description</Text>
-          <Text style={styles.description}>
-            {categoryDescriptions[product.category]}
+          <Text style={[styles.stock, soldOut && styles.stockOut]}>
+            {soldOut
+              ? 'Out of stock'
+              : product.stock <= 5
+              ? `Only ${product.stock} left in stock`
+              : 'In stock'}
           </Text>
+
+          <Text style={styles.sectionTitle}>Description</Text>
+          <Text style={styles.description}>{product.description}</Text>
 
           <View style={styles.qtyRow}>
             <Text style={styles.sectionTitleInline}>Quantity</Text>
@@ -156,7 +190,9 @@ function ProductDetail({
               <Text style={styles.qty}>{quantity}</Text>
               <Pressable
                 hitSlop={6}
-                onPress={() => setQuantity(q => q + 1)}
+                onPress={() =>
+                  setQuantity(q => Math.min(Math.max(1, maxQty), q + 1))
+                }
                 style={styles.stepBtn}
               >
                 <Icon name="plus" size={16} strokeWidth={2} />
@@ -167,9 +203,11 @@ function ProductDetail({
 
         <InfoStrip />
 
-        <Text style={[styles.sectionTitle, styles.alsoLike]}>
-          You may also like
-        </Text>
+        {alsoLike.length > 0 && (
+          <Text style={[styles.sectionTitle, styles.alsoLike]}>
+            You may also like
+          </Text>
+        )}
         <FlatList
           data={alsoLike}
           horizontal
@@ -185,23 +223,45 @@ function ProductDetail({
       <View
         style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) }]}
       >
-        <Pressable
-          onPress={handleAdd}
-          style={({ pressed }) => [styles.addBtn, pressed && styles.pressed]}
-        >
-          <Icon name={added ? 'check' : 'bag'} size={18} strokeWidth={1.8} />
-          <Text style={styles.addText}>{added ? 'Added' : 'Add to Bag'}</Text>
-        </Pressable>
-        <Pressable
-          onPress={handleBuyNow}
-          style={({ pressed }) => [styles.flex, pressed && styles.pressed]}
-        >
-          <LinearGradient colors={['#C99A4E', '#A97A33']} style={styles.buyBtn}>
+        {maxQty <= 0 ? (
+          <View style={[styles.flex, styles.buyBtn, styles.disabledBtn]}>
             <Text style={styles.buyText}>
-              Buy Now · {formatPrice(product.price * quantity)}
+              {soldOut ? 'Out of stock' : 'All available stock is in your bag'}
             </Text>
-          </LinearGradient>
-        </Pressable>
+          </View>
+        ) : (
+          <>
+            <Pressable
+              onPress={handleAdd}
+              style={({ pressed }) => [
+                styles.addBtn,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Icon
+                name={added ? 'check' : 'bag'}
+                size={18}
+                strokeWidth={1.8}
+              />
+              <Text style={styles.addText}>
+                {added ? 'Added' : 'Add to Bag'}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={handleBuyNow}
+              style={({ pressed }) => [styles.flex, pressed && styles.pressed]}
+            >
+              <LinearGradient
+                colors={['#C99A4E', '#A97A33']}
+                style={styles.buyBtn}
+              >
+                <Text style={styles.buyText}>
+                  Buy Now · {formatPrice(product.price * quantity)}
+                </Text>
+              </LinearGradient>
+            </Pressable>
+          </>
+        )}
       </View>
     </Screen>
   );
@@ -260,6 +320,14 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   price: { fontSize: 22, fontWeight: '700', color: colors.price },
+  compare: {
+    fontSize: 15,
+    color: colors.textMuted,
+    textDecorationLine: 'line-through',
+  },
+  stock: { marginTop: 8, fontSize: 13, color: '#2E7D4F', fontWeight: '600' },
+  stockOut: { color: colors.price },
+  disabledBtn: { backgroundColor: '#D2BD9F' },
   badge: {
     backgroundColor: colors.blush,
     paddingHorizontal: 10,

@@ -16,3 +16,23 @@ export const parseDateOnly = (value: string) =>
 
 export const todayDateOnly = () =>
   parseDateOnly(new Date().toISOString().slice(0, 10));
+
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+/** "Sat, 3 Oct" for a date-only value. */
+export const friendlyDay = (d: Date) =>
+  `${DAYS[d.getUTCDay()]}, ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;

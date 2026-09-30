@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   FlatList,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -9,65 +10,65 @@ import {
 import { SearchBar } from '../components/Header';
 import ProductCard from '../components/ProductCard';
 import ScreenTitle from '../components/ScreenTitle';
-import { EmptyState, Screen } from '../components/ui';
-import { categories, CategoryId, products } from '../data';
+import { EmptyState, ErrorView, LoadingView, Screen } from '../components/ui';
+import { ProductFilters, useCategories, useProducts } from '../api/hooks';
+import { errorMessage } from '../api/client';
 import { TabScreenProps } from '../navigation/types';
 import { colors, SCREEN_WIDTH } from '../theme';
+import { useDebounced } from '../utils';
 
 const COLUMN_GAP = 12;
 const CARD_WIDTH = (SCREEN_WIDTH - 32 - COLUMN_GAP) / 2;
 
-type Filter = CategoryId | 'all';
-type Sort = 'featured' | 'low' | 'high';
-
+type Sort = NonNullable<ProductFilters['sort']>;
 const SORTS: { id: Sort; label: string }[] = [
   { id: 'featured', label: 'Featured' },
-  { id: 'low', label: 'Price: Low' },
-  { id: 'high', label: 'Price: High' },
+  { id: 'price_asc', label: 'Price: Low' },
+  { id: 'price_desc', label: 'Price: High' },
+  { id: 'newest', label: 'Newest' },
 ];
 
 export default function ShopScreen({ route }: TabScreenProps<'Shop'>) {
   const requested = route.params?.category;
-  const [filter, setFilter] = useState<Filter>(requested ?? 'all');
+  const [category, setCategory] = useState<string | undefined>(requested);
   const [sort, setSort] = useState<Sort>('featured');
   const [query, setQuery] = useState('');
+  const q = useDebounced(query.trim(), 350);
 
   // Follow category links from Home / the menu.
   useEffect(() => {
-    setFilter(requested ?? 'all');
+    setCategory(requested);
   }, [requested]);
 
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const list = products.filter(
-      p =>
-        (filter === 'all' || p.category === filter) &&
-        (!q || `${p.name} ${p.subtitle}`.toLowerCase().includes(q)),
-    );
-    if (sort === 'low') {
-      return [...list].sort((a, b) => a.price - b.price);
-    }
-    if (sort === 'high') {
-      return [...list].sort((a, b) => b.price - a.price);
-    }
-    return list;
-  }, [filter, query, sort]);
+  const categories = useCategories();
+  const products = useProducts({ category, q: q || undefined, sort });
+  const items = products.data?.items ?? [];
 
-  const chips: { id: Filter; label: string }[] = [
-    { id: 'all', label: 'All' },
-    ...categories.map(c => ({ id: c.id, label: c.label.replace('\n', ' ') })),
+  const chips = [
+    { slug: undefined as string | undefined, name: 'All' },
+    ...(categories.data ?? []),
   ];
 
   return (
     <Screen>
       <FlatList
-        data={visible}
+        data={items}
         numColumns={2}
         keyExtractor={p => p.id}
         columnWrapperStyle={styles.column}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl
+            refreshing={products.isRefetching && !products.isPlaceholderData}
+            onRefresh={() => {
+              products.refetch();
+            }}
+            tintColor={colors.gold}
+            colors={[colors.gold]}
+          />
+        }
         ListHeaderComponent={
           <>
             <ScreenTitle
@@ -81,44 +82,59 @@ export default function ShopScreen({ route }: TabScreenProps<'Shop'>) {
               contentContainerStyle={styles.chips}
             >
               {chips.map(chip => {
-                const active = chip.id === filter;
+                const active = chip.slug === category;
                 return (
                   <Pressable
-                    key={chip.id}
-                    onPress={() => setFilter(chip.id)}
+                    key={chip.slug ?? 'all'}
+                    onPress={() => setCategory(chip.slug)}
                     style={[styles.chip, active && styles.chipActive]}
                   >
                     <Text
                       style={[styles.chipText, active && styles.chipTextActive]}
                     >
-                      {chip.label}
+                      {chip.name}
                     </Text>
                   </Pressable>
                 );
               })}
             </ScrollView>
-            <Text style={styles.count}>
-              {visible.length} {visible.length === 1 ? 'product' : 'products'}
-              {'   ·   '}
-              {SORTS.map((s, i) => (
-                <Text
-                  key={s.id}
-                  onPress={() => setSort(s.id)}
-                  style={sort === s.id ? styles.sortActive : styles.sort}
-                >
-                  {s.label}
-                  {i < SORTS.length - 1 ? '   ' : ''}
-                </Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.sortRow}
+            >
+              <Text style={styles.count}>
+                {products.data
+                  ? `${products.data.total} ${
+                      products.data.total === 1 ? 'product' : 'products'
+                    }`
+                  : ' '}
+              </Text>
+              {SORTS.map(s => (
+                <Pressable key={s.id} onPress={() => setSort(s.id)} hitSlop={6}>
+                  <Text style={sort === s.id ? styles.sortActive : styles.sort}>
+                    {s.label}
+                  </Text>
+                </Pressable>
               ))}
-            </Text>
+            </ScrollView>
           </>
         }
         ListEmptyComponent={
-          <EmptyState
-            icon="search"
-            title="No products found"
-            text="Try another category or search term."
-          />
+          products.isLoading ? (
+            <LoadingView />
+          ) : products.error ? (
+            <ErrorView
+              message={errorMessage(products.error)}
+              onRetry={() => products.refetch()}
+            />
+          ) : (
+            <EmptyState
+              icon="search"
+              title="No products found"
+              text="Try another category or search term."
+            />
+          )
         }
         renderItem={({ item }) => (
           <ProductCard product={item} width={CARD_WIDTH} />
@@ -143,12 +159,13 @@ const styles = StyleSheet.create({
   chipActive: { backgroundColor: colors.gold, borderColor: colors.gold },
   chipText: { fontSize: 13, color: colors.brownSoft },
   chipTextActive: { color: colors.white, fontWeight: '600' },
-  count: {
-    marginHorizontal: 16,
-    marginBottom: 12,
-    fontSize: 12.5,
-    color: colors.textMuted,
+  sortRow: {
+    gap: 16,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    alignItems: 'center',
   },
-  sort: { color: colors.textMuted },
-  sortActive: { color: colors.gold, fontWeight: '700' },
+  count: { fontSize: 12.5, color: colors.textMuted, marginRight: 4 },
+  sort: { fontSize: 12.5, color: colors.textMuted },
+  sortActive: { fontSize: 12.5, color: colors.gold, fontWeight: '700' },
 });

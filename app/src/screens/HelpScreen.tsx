@@ -10,8 +10,8 @@ import {
 } from 'react-native';
 import Icon, { IconName } from '../components/Icon';
 import { Card, Screen, SectionTitle, StackHeader } from '../components/ui';
-import { faqs } from '../data';
-import { storeConfig } from '../config';
+import { useFaqs, useSettings } from '../api/hooks';
+import { LoadingView } from '../components/ui';
 import { colors } from '../theme';
 
 const open = (url: string) =>
@@ -21,6 +21,19 @@ const open = (url: string) =>
 
 export default function HelpScreen() {
   const [openIndex, setOpenIndex] = useState<number | null>(0);
+  const settings = useSettings();
+  const faqsQuery = useFaqs();
+  const faqs = faqsQuery.data ?? [];
+  const storeConfig = settings.data;
+
+  if (!storeConfig) {
+    return (
+      <Screen>
+        <StackHeader title="Help & Support" />
+        <LoadingView />
+      </Screen>
+    );
+  }
 
   const contacts: {
     icon: IconName;
@@ -86,12 +99,12 @@ export default function HelpScreen() {
             const isOpen = openIndex === i;
             return (
               <Pressable
-                key={f.q}
+                key={f.id}
                 onPress={() => setOpenIndex(isOpen ? null : i)}
                 style={[styles.faq, i < faqs.length - 1 && styles.faqBorder]}
               >
                 <View style={styles.faqHead}>
-                  <Text style={styles.q}>{f.q}</Text>
+                  <Text style={styles.q}>{f.question}</Text>
                   <View
                     style={{
                       transform: [{ rotate: isOpen ? '90deg' : '0deg' }],
@@ -100,7 +113,7 @@ export default function HelpScreen() {
                     <Icon name="chevronRight" size={16} />
                   </View>
                 </View>
-                {isOpen && <Text style={styles.a}>{f.a}</Text>}
+                {isOpen && <Text style={styles.a}>{f.answer}</Text>}
               </Pressable>
             );
           })}

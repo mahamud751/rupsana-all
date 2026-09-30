@@ -3,8 +3,10 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { StackActions, useNavigation } from '@react-navigation/native';
 import Icon from './Icon';
-import { Product } from '../data';
-import { useStore } from '../context/StoreContext';
+import { Product } from '../api/types';
+import { imageUri } from '../api/config';
+import { useRequireAuth, useToggleWishlist, useWishlist } from '../api/hooks';
+import { useCart } from '../context/CartContext';
 import { colors, formatPrice } from '../theme';
 
 type Props = {
@@ -19,14 +21,18 @@ const HEART_SIZE = 26;
 
 export default function ProductCard({ product, width }: Props) {
   const navigation = useNavigation();
-  const { addToCart, toggleWishlist, isWishlisted } = useStore();
+  const cart = useCart();
+  const requireAuth = useRequireAuth();
+  const wishlist = useWishlist();
+  const toggle = useToggleWishlist();
   const [justAdded, setJustAdded] = useState(false);
-  const liked = isWishlisted(product.id);
+  const liked = !!wishlist.data?.productIds.includes(product.id);
+  const soldOut = product.stock <= 0;
   const imageWidth = width - 8;
   const imageHeight = imageWidth * IMAGE_RATIO;
 
   const handleAdd = () => {
-    addToCart(product);
+    cart.add(product);
     setJustAdded(true);
     setTimeout(() => setJustAdded(false), 1200);
   };
@@ -43,13 +49,20 @@ export default function ProductCard({ product, width }: Props) {
       >
         <View style={[styles.imageWrap, { height: imageHeight }]}>
           <Image
-            source={product.image}
+            source={{ uri: imageUri(product.imageUrl) }}
             style={styles.image}
             resizeMode="cover"
           />
+          {soldOut && (
+            <View style={styles.soldOut}>
+              <Text style={styles.soldOutText}>Sold out</Text>
+            </View>
+          )}
           <Pressable
             hitSlop={8}
-            onPress={() => toggleWishlist(product.id)}
+            onPress={() =>
+              requireAuth(() => toggle.mutate({ productId: product.id, liked }))
+            }
             style={[
               styles.heart,
               {
@@ -79,10 +92,11 @@ export default function ProductCard({ product, width }: Props) {
 
       <Pressable
         onPress={handleAdd}
+        disabled={soldOut}
         style={({ pressed }) => pressed && styles.pressed}
       >
         <LinearGradient
-          colors={['#C99A4E', '#A97A33']}
+          colors={soldOut ? ['#DCC9AE', '#D2BD9F'] : ['#C99A4E', '#A97A33']}
           start={{ x: 0, y: 0 }}
           end={{ x: 0, y: 1 }}
           style={styles.button}
@@ -94,7 +108,7 @@ export default function ProductCard({ product, width }: Props) {
             strokeWidth={1.8}
           />
           <Text style={styles.buttonText}>
-            {justAdded ? 'Added' : 'Add to Bag'}
+            {soldOut ? 'Sold out' : justAdded ? 'Added' : 'Add to Bag'}
           </Text>
         </LinearGradient>
       </Pressable>
@@ -117,6 +131,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.blush,
   },
   image: { width: '100%', height: '100%' },
+  soldOut: {
+    position: 'absolute',
+    left: 6,
+    bottom: 6,
+    backgroundColor: 'rgba(62,42,30,0.75)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  soldOutText: { color: colors.white, fontSize: 10.5, fontWeight: '600' },
   heart: {
     position: 'absolute',
     width: HEART_SIZE,

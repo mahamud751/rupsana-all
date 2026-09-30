@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  ActivityIndicator,
   Image,
   ImageSourcePropType,
   KeyboardTypeOptions,
@@ -16,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import Icon, { IconName } from './Icon';
 import { colors, fonts } from '../theme';
+import { imageUri } from '../api/config';
 
 /** Page wrapper that keeps content below the status bar / notch. */
 export function Screen({
@@ -131,6 +133,7 @@ export function Field({
   keyboardType,
   multiline,
   autoCapitalize,
+  secureTextEntry,
 }: {
   label: string;
   value: string;
@@ -139,7 +142,8 @@ export function Field({
   error?: string;
   keyboardType?: KeyboardTypeOptions;
   multiline?: boolean;
-  autoCapitalize?: 'none' | 'words' | 'sentences';
+  autoCapitalize?: 'none' | 'words' | 'sentences' | 'characters';
+  secureTextEntry?: boolean;
 }) {
   return (
     <View style={styles.field}>
@@ -152,6 +156,7 @@ export function Field({
         keyboardType={keyboardType}
         multiline={multiline}
         autoCapitalize={autoCapitalize}
+        secureTextEntry={secureTextEntry}
         style={[
           styles.input,
           multiline && styles.inputMultiline,
@@ -242,19 +247,53 @@ export function ProductThumb({
   width,
   height,
 }: {
-  source: ImageSourcePropType;
+  source: ImageSourcePropType | string;
   width: number;
   height: number;
 }) {
   return (
     <View style={[styles.thumb, { width, height }]}>
       <Image
-        source={source}
+        source={typeof source === 'string' ? { uri: imageUri(source) } : source}
         style={[
           styles.thumbImage,
           { height: Math.max(height, width * 1.16) * 1.18 },
         ]}
       />
+    </View>
+  );
+}
+
+export function LoadingView({ style }: { style?: StyleProp<ViewStyle> }) {
+  return (
+    <View style={[styles.centered, style]}>
+      <ActivityIndicator color={colors.gold} size="large" />
+    </View>
+  );
+}
+
+/** Friendly error with a retry button, for failed API requests. */
+export function ErrorView({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <View style={styles.errorBox}>
+      <View style={styles.emptyIcon}>
+        <Icon name="info" size={40} strokeWidth={1.3} />
+      </View>
+      <Text style={styles.emptyTitle}>Something went wrong</Text>
+      <Text style={styles.emptyText}>{message}</Text>
+      {onRetry && (
+        <OutlineButton
+          title="Try again"
+          onPress={onRetry}
+          style={styles.emptyBtn}
+        />
+      )}
     </View>
   );
 }
@@ -267,10 +306,14 @@ const STATUS_STYLE: Record<string, { bg: string; fg: string; label: string }> =
     delivered: { bg: '#E1F3E7', fg: '#2E7D4F', label: 'Delivered' },
     cancelled: { bg: '#F8E0E2', fg: '#B0283A', label: 'Cancelled' },
     requested: { bg: '#FBEBD3', fg: '#9C6F2B', label: 'Requested' },
+    completed: { bg: '#E1F3E7', fg: '#2E7D4F', label: 'Completed' },
+    pending: { bg: '#FBEBD3', fg: '#9C6F2B', label: 'Payment pending' },
+    paid: { bg: '#E1F3E7', fg: '#2E7D4F', label: 'Paid' },
+    refunded: { bg: '#EDE4FA', fg: '#6A45A8', label: 'Refunded' },
   };
 
 export function StatusPill({ status }: { status: string }) {
-  const s = STATUS_STYLE[status] ?? STATUS_STYLE.placed;
+  const s = STATUS_STYLE[status.toLowerCase()] ?? STATUS_STYLE.placed;
   return (
     <View style={[styles.pill, { backgroundColor: s.bg }]}>
       <Text style={[styles.pillText, { color: s.fg }]}>{s.label}</Text>
@@ -361,6 +404,17 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   empty: { alignItems: 'center', paddingHorizontal: 32, paddingTop: 60 },
+  centered: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+  },
+  errorBox: {
+    alignItems: 'center',
+    paddingHorizontal: 32,
+    paddingVertical: 40,
+  },
   emptyIcon: {
     width: 96,
     height: 96,

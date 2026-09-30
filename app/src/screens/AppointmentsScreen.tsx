@@ -3,21 +3,48 @@ import {
   Alert,
   FlatList,
   Pressable,
+  RefreshControl,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import Icon from '../components/Icon';
-import { EmptyState, Screen, StackHeader, StatusPill } from '../components/ui';
-import { useStore } from '../context/StoreContext';
+import {
+  EmptyState,
+  ErrorView,
+  LoadingView,
+  Screen,
+  StackHeader,
+  StatusPill,
+} from '../components/ui';
+import { useAppointments, useCancelAppointment } from '../api/hooks';
+import { errorMessage } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 import { RootScreenProps } from '../navigation/types';
 import { colors, fonts, formatPrice } from '../theme';
 import { formatDay } from '../utils';
 
+const MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
 export default function AppointmentsScreen({
   navigation,
 }: RootScreenProps<'Appointments'>) {
-  const { appointments, cancelAppointment } = useStore();
+  const { user } = useAuth();
+  const appointments = useAppointments();
+  const cancel = useCancelAppointment();
 
   const confirmCancel = (id: string) =>
     Alert.alert('Cancel appointment?', 'You can always book again later.', [
@@ -25,63 +52,93 @@ export default function AppointmentsScreen({
       {
         text: 'Cancel appointment',
         style: 'destructive',
-        onPress: () => cancelAppointment(id),
+        onPress: () =>
+          cancel.mutate(id, {
+            onError: e => Alert.alert('Could not cancel', errorMessage(e)),
+          }),
       },
     ]);
 
   return (
     <Screen>
       <StackHeader title="My Appointments" />
-      <FlatList
-        data={appointments}
-        keyExtractor={a => a.id}
-        contentContainerStyle={styles.list}
-        ListEmptyComponent={
-          <EmptyState
-            icon="calendar"
-            title="No appointments yet"
-            text="Book a bridal makeup, hair styling or consultation session at our salon."
-            action="Book Appointment"
-            onAction={() => navigation.navigate('Tabs', { screen: 'Book' })}
-          />
-        }
-        renderItem={({ item }) => {
-          const d = new Date(item.date);
-          return (
-            <View style={styles.card}>
-              <View style={styles.dateBox}>
-                <Text style={styles.dateDay}>{d.getDate()}</Text>
-                <Text style={styles.dateMon}>
-                  {d.toLocaleString('en-US', { month: 'short' })}
-                </Text>
-              </View>
-              <View style={styles.flex}>
-                <Text style={styles.service}>{item.serviceName}</Text>
-                <View style={styles.row}>
-                  <Icon name="clock" size={13} color={colors.textMuted} />
+      {!user ? (
+        <EmptyState
+          icon="user"
+          title="Sign in to see your appointments"
+          text="Your bookings are saved to your account."
+          action="Sign In"
+          onAction={() => navigation.navigate('SignIn')}
+        />
+      ) : appointments.isLoading ? (
+        <LoadingView />
+      ) : appointments.error ? (
+        <ErrorView
+          message={errorMessage(appointments.error)}
+          onRetry={() => appointments.refetch()}
+        />
+      ) : (
+        <FlatList
+          data={appointments.data}
+          keyExtractor={a => a.id}
+          contentContainerStyle={styles.list}
+          refreshControl={
+            <RefreshControl
+              refreshing={appointments.isRefetching}
+              onRefresh={() => {
+                appointments.refetch();
+              }}
+              tintColor={colors.gold}
+              colors={[colors.gold]}
+            />
+          }
+          ListEmptyComponent={
+            <EmptyState
+              icon="calendar"
+              title="No appointments yet"
+              text="Book a bridal makeup, hair styling or consultation session at our salon."
+              action="Book Appointment"
+              onAction={() => navigation.navigate('Tabs', { screen: 'Book' })}
+            />
+          }
+          renderItem={({ item }) => {
+            const d = new Date(item.date);
+            const active =
+              item.status === 'REQUESTED' || item.status === 'CONFIRMED';
+            return (
+              <View style={styles.card}>
+                <View style={styles.dateBox}>
+                  <Text style={styles.dateDay}>{d.getUTCDate()}</Text>
+                  <Text style={styles.dateMon}>{MONTHS[d.getUTCMonth()]}</Text>
+                </View>
+                <View style={styles.flex}>
+                  <Text style={styles.service}>{item.serviceName}</Text>
+                  <View style={styles.row}>
+                    <Icon name="clock" size={13} color={colors.textMuted} />
+                    <Text style={styles.meta}>
+                      {formatDay(item.date)} · {item.slot}
+                    </Text>
+                  </View>
                   <Text style={styles.meta}>
-                    {formatDay(item.date)} · {item.slot}
+                    {item.price ? formatPrice(item.price) : 'Free consultation'}
                   </Text>
-                </View>
-                <Text style={styles.meta}>
-                  {item.price ? formatPrice(item.price) : 'Free consultation'}
-                </Text>
-                <View style={styles.footer}>
-                  <StatusPill status={item.status} />
-                  {item.status === 'requested' && (
-                    <Pressable
-                      hitSlop={8}
-                      onPress={() => confirmCancel(item.id)}
-                    >
-                      <Text style={styles.cancel}>Cancel</Text>
-                    </Pressable>
-                  )}
+                  <View style={styles.footer}>
+                    <StatusPill status={item.status} />
+                    {active && (
+                      <Pressable
+                        hitSlop={8}
+                        onPress={() => confirmCancel(item.id)}
+                      >
+                        <Text style={styles.cancel}>Cancel</Text>
+                      </Pressable>
+                    )}
+                  </View>
                 </View>
               </View>
-            </View>
-          );
-        }}
-      />
+            );
+          }}
+        />
+      )}
     </Screen>
   );
 }

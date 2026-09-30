@@ -4,16 +4,18 @@ React Native CLI app (iOS + Android) for a bridal & beauty shop with salon booki
 
 ## Features
 
-- **Home** — hero carousel, categories, bestsellers, appointment banner
-- **Shop** — category filters, search, price sorting
-- **Product details** — quantity, wishlist, Add to Bag / Buy Now, related products
-- **Bag & Checkout** — delivery address, Inside/Outside Dhaka delivery fee,
-  Cash on Delivery or bKash (Send Money + Transaction ID), promo codes
-- **Orders** — order confirmation, order history, status timeline, cancel
-- **Book** — bridal services, date & time slot, My Appointments
-- **Profile, Wishlist, Notifications, Search, Menu, Help & Support, About**
-- Data (bag, wishlist, orders, appointments, profile) is saved on the device
-- Deep links: `rupsuhana://product/p1`, `rupsuhana://orders`, `rupsuhana://checkout`, …
+All data comes from the Rupsuhana API in [`../server`](../server).
+
+- **Home**: banners, categories and bestsellers from the server
+- **Shop**: category filters, search, sorting, live stock ("Sold out", "Only 3 left")
+- **Product details**: description, quantity (limited to stock), wishlist, related products
+- **Account**: register / sign in with phone + password, profile, change password, saved addresses
+- **Bag & Checkout**: bag saved on the device; checkout gets prices, delivery fee and
+  promo discount from the server, then places a real order (Cash on Delivery or bKash)
+- **Orders**: order history, status timeline with dates, cancel before confirmation
+- **Book**: salon services and real slot availability per day; My Appointments
+- **Wishlist, Notifications** (order/booking updates), **Search, Menu, Help (FAQs), About**
+- Deep links: `rupsuhana://product/<id-or-slug>`, `rupsuhana://orders`, …
 
 ## Run
 
@@ -24,20 +26,20 @@ npm start            # Metro
 npm run ios          # or: npm run android
 ```
 
+## Server address
+
+Set in [`src/api/config.ts`](src/api/config.ts):
+
+- iOS simulator → `http://localhost:3000`, Android emulator → `http://10.0.2.2:3000` (automatic)
+- Real phone → set `DEV_HOST` to your computer's Wi-Fi IP
+- Release builds → set `PRODUCTION_URL` to your deployed **HTTPS** server
+
 ## Before publishing
 
-- **Store details** — set the real phone, WhatsApp, email, bKash number and
-  salon address in [`src/config.ts`](src/config.ts). Delivery fees and promo
-  codes are also there.
-- **Products & photos** — products live in [`src/data.ts`](src/data.ts). The
-  current photos are cropped from the design mockup and are low resolution;
-  replace the files in `src/assets/images/` with real product photos.
-- **Backend** — orders and bookings are stored only on the customer's phone.
-  To receive them as the shop owner, connect `placeOrder` and `addAppointment`
-  in [`src/context/StoreContext.tsx`](src/context/StoreContext.tsx) to an API
-  (or a service such as Firebase).
-- **App identity** — change the bundle ID (`org.reactjs.native.example.Rupsuhana`)
-  and add an app icon and splash screen.
+- Deploy the server with HTTPS and set `PRODUCTION_URL`.
+- Replace the sample product photos (upload real ones via `POST /api/admin/uploads`).
+- Set the real phone, WhatsApp, email and bKash number with `PATCH /api/admin/settings`.
+- Change the bundle ID (`org.reactjs.native.example.Rupsuhana`), app icon and splash screen.
 
 ## Project structure
 
@@ -46,8 +48,7 @@ src/
   components/   UI building blocks (header, cards, tab bar, icons, logo, ui.tsx)
   screens/      One file per screen
   navigation/   Stack + tab navigator, routes, deep links
-  context/      StoreContext — cart, wishlist, orders, bookings, profile
-  config.ts     Store contact details, delivery fees, promo codes
-  data.ts       Products, categories, services, FAQs
+  api/          Server address, request helper, types, React Query hooks
+  context/      AuthContext (sign-in) and CartContext (bag on the device)
   theme.ts      Colours, fonts, price formatting
 ```

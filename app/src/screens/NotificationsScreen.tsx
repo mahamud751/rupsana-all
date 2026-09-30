@@ -1,52 +1,100 @@
-import React, { useEffect } from 'react';
-import { FlatList, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import Icon from '../components/Icon';
-import { EmptyState, Screen, StackHeader } from '../components/ui';
-import { useStore } from '../context/StoreContext';
+import {
+  EmptyState,
+  ErrorView,
+  LoadingView,
+  Screen,
+  StackHeader,
+} from '../components/ui';
+import { useMarkNoticesRead, useNotifications } from '../api/hooks';
+import { errorMessage } from '../api/client';
+import { useAuth } from '../context/AuthContext';
+import { RootScreenProps } from '../navigation/types';
 import { colors } from '../theme';
 import { formatDateTime } from '../utils';
 
-export default function NotificationsScreen() {
-  const { notices, markNoticesRead } = useStore();
-  // Snapshot which ones were unread when the screen opened, for highlighting.
-  const [unread] = React.useState(
-    () => new Set(notices.filter(n => !n.read).map(n => n.id)),
-  );
+export default function NotificationsScreen({
+  navigation,
+}: RootScreenProps<'Notifications'>) {
+  const { user } = useAuth();
+  const notices = useNotifications();
+  const markRead = useMarkNoticesRead();
+  // Remember which were unread when the screen opened, for highlighting.
+  const [unread, setUnread] = useState<Set<string> | null>(null);
 
+  const { mutate } = markRead;
   useEffect(() => {
-    markNoticesRead();
-    // Only on open.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (notices.data && unread === null) {
+      const ids = notices.data.filter(n => !n.read).map(n => n.id);
+      setUnread(new Set(ids));
+      if (ids.length) {
+        mutate();
+      }
+    }
+  }, [notices.data, unread, mutate]);
 
   return (
     <Screen>
       <StackHeader title="Notifications" />
-      <FlatList
-        data={notices}
-        keyExtractor={n => n.id}
-        contentContainerStyle={styles.list}
-        ListEmptyComponent={
-          <EmptyState
-            icon="bell"
-            title="No notifications"
-            text="Order updates and offers will appear here."
-          />
-        }
-        renderItem={({ item }) => (
-          <View style={[styles.card, unread.has(item.id) && styles.unread]}>
-            <View style={styles.icon}>
-              <Icon name="bell" size={20} />
-            </View>
-            <View style={styles.flex}>
-              <Text style={styles.title}>{item.title}</Text>
-              <Text style={styles.body}>{item.body}</Text>
-              <Text style={styles.time}>{formatDateTime(item.createdAt)}</Text>
-            </View>
-            {unread.has(item.id) && <View style={styles.dot} />}
-          </View>
-        )}
-      />
+      {!user ? (
+        <EmptyState
+          icon="bell"
+          title="Sign in for updates"
+          text="Order updates, appointment confirmations and offers appear here."
+          action="Sign In"
+          onAction={() => navigation.navigate('SignIn')}
+        />
+      ) : notices.isLoading ? (
+        <LoadingView />
+      ) : notices.error ? (
+        <ErrorView
+          message={errorMessage(notices.error)}
+          onRetry={() => notices.refetch()}
+        />
+      ) : (
+        <FlatList
+          data={notices.data}
+          keyExtractor={n => n.id}
+          contentContainerStyle={styles.list}
+          refreshControl={
+            <RefreshControl
+              refreshing={notices.isRefetching}
+              onRefresh={() => {
+                notices.refetch();
+              }}
+              tintColor={colors.gold}
+              colors={[colors.gold]}
+            />
+          }
+          ListEmptyComponent={
+            <EmptyState
+              icon="bell"
+              title="No notifications"
+              text="Order updates and offers will appear here."
+            />
+          }
+          renderItem={({ item }) => {
+            const isNew = !!unread?.has(item.id);
+            return (
+              <View style={[styles.card, isNew && styles.unread]}>
+                <View style={styles.icon}>
+                  <Icon name="bell" size={20} />
+                </View>
+                <View style={styles.flex}>
+                  <Text style={styles.title}>{item.title}</Text>
+                  <Text style={styles.body}>{item.body}</Text>
+                  <Text style={styles.time}>
+                    {formatDateTime(item.createdAt)}
+                  </Text>
+                </View>
+                {isNew && <View style={styles.dot} />}
+              </View>
+            );
+          }}
+        />
+      )}
     </Screen>
   );
 }

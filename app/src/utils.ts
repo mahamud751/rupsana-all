@@ -1,3 +1,5 @@
+import React from 'react';
+
 const MONTHS = [
   'Jan',
   'Feb',
@@ -19,9 +21,10 @@ export const formatDate = (iso: string) => {
   return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
 };
 
+/** Formats a date-only value from the API (stored as midnight UTC). */
 export const formatDay = (iso: string) => {
   const d = new Date(iso);
-  return `${DAYS[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]}`;
+  return `${DAYS[d.getUTCDay()]}, ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
 };
 
 export const formatDateTime = (iso: string) => {
@@ -38,9 +41,18 @@ export const isValidPhone = (phone: string) =>
 export const isValidEmail = (email: string) =>
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 
-export const newId = (prefix: string) =>
-  `${prefix}${Date.now().toString(36).toUpperCase()}${Math.floor(
-    Math.random() * 1000,
-  )
-    .toString()
-    .padStart(3, '0')}`;
+/** Returns `value` once it has stopped changing for `delay` ms. */
+export function useDebounced<T>(value: T, delay: number) {
+  const [debounced, setDebounced] = React.useState(value);
+  React.useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
+
+/** Local calendar date as YYYY-MM-DD. */
+export const toDateKey = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+    d.getDate(),
+  ).padStart(2, '0')}`;

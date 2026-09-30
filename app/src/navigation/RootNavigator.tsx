@@ -29,6 +29,9 @@ import AppointmentsScreen from '../screens/AppointmentsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import HelpScreen from '../screens/HelpScreen';
 import AboutScreen from '../screens/AboutScreen';
+import AddressesScreen from '../screens/AddressesScreen';
+import SignInScreen from '../screens/SignInScreen';
+import RegisterScreen from '../screens/RegisterScreen';
 import { colors } from '../theme';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -69,6 +72,9 @@ const linking: LinkingOptions<RootStackParamList> = {
       Profile: 'profile',
       Help: 'help',
       About: 'about',
+      Addresses: 'addresses',
+      SignIn: 'sign-in',
+      Register: 'register',
     },
   },
 };
@@ -119,6 +125,11 @@ export default function RootNavigator() {
         <Stack.Screen name="Profile" component={ProfileScreen} />
         <Stack.Screen name="Help" component={HelpScreen} />
         <Stack.Screen name="About" component={AboutScreen} />
+        <Stack.Screen name="Addresses" component={AddressesScreen} />
+        <Stack.Group screenOptions={{ presentation: 'modal' }}>
+          <Stack.Screen name="SignIn" component={SignInScreen} />
+          <Stack.Screen name="Register" component={RegisterScreen} />
+        </Stack.Group>
       </Stack.Navigator>
     </NavigationContainer>
   );

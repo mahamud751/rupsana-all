@@ -12,167 +12,126 @@ import {
 import Icon, { IconName } from '../components/Icon';
 import {
   Card,
+  EmptyState,
   Field,
   GoldButton,
   OutlineButton,
   Screen,
-  SectionTitle,
   StackHeader,
 } from '../components/ui';
-import { Profile, useStore } from '../context/StoreContext';
+import { useAuth } from '../context/AuthContext';
+import {
+  useAddresses,
+  useAppointments,
+  useChangePassword,
+  useOrders,
+  useUpdateProfile,
+  useWishlist,
+} from '../api/hooks';
+import { errorMessage } from '../api/client';
 import { RootScreenProps } from '../navigation/types';
 import { colors, fonts } from '../theme';
-import { isValidEmail, isValidPhone } from '../utils';
+import { isValidEmail } from '../utils';
 
-type Errors = Partial<Record<keyof Profile, string>>;
+type Mode = 'view' | 'edit' | 'password';
 
 export default function ProfileScreen({
   navigation,
 }: RootScreenProps<'Profile'>) {
-  const {
-    profile,
-    address,
-    orders,
-    appointments,
-    wishlist,
-    saveProfile,
-    signOut,
-  } = useStore();
-  const [editing, setEditing] = useState(!profile);
-  const [form, setForm] = useState<Profile>(
-    profile ?? { name: '', phone: '', email: '' },
-  );
-  const [errors, setErrors] = useState<Errors>({});
+  const { user, signOut } = useAuth();
+  const orders = useOrders();
+  const appointments = useAppointments();
+  const wishlist = useWishlist();
+  const addresses = useAddresses();
+  const [mode, setMode] = useState<Mode>('view');
 
-  const save = () => {
-    const e: Errors = {};
-    if (form.name.trim().length < 2) {
-      e.name = 'Please enter your name.';
-    }
-    if (!isValidPhone(form.phone)) {
-      e.phone = 'Enter a valid mobile number, e.g. 017XXXXXXXX.';
-    }
-    if (form.email.trim() && !isValidEmail(form.email)) {
-      e.email = 'Enter a valid email address.';
-    }
-    setErrors(e);
-    if (Object.keys(e).length) {
-      return;
-    }
-    saveProfile({
-      name: form.name.trim(),
-      phone: form.phone.trim(),
-      email: form.email.trim(),
-    });
-    setEditing(false);
-  };
-
-  const confirmSignOut = () =>
-    Alert.alert(
-      'Sign out?',
-      'Your saved name, phone and address will be removed from this device.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Sign out',
-          style: 'destructive',
-          onPress: () => {
-            signOut();
-            setForm({ name: '', phone: '', email: '' });
-            setEditing(true);
-          },
-        },
-      ],
-    );
-
-  if (editing) {
+  if (!user) {
     return (
       <Screen>
-        <StackHeader title={profile ? 'Edit Profile' : 'Sign In'} />
-        <KeyboardAvoidingView
-          style={styles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        <StackHeader title="My Profile" />
+        <EmptyState
+          icon="user"
+          title="Welcome to Rupsuhana"
+          text="Sign in or create an account to check out, book appointments and track orders."
+          action="Sign In"
+          onAction={() => navigation.navigate('SignIn')}
+        />
+        <Pressable
+          onPress={() => navigation.navigate('Register')}
+          style={styles.registerLink}
         >
-          <ScrollView
-            contentContainerStyle={styles.content}
-            keyboardShouldPersistTaps="handled"
-          >
-            {!profile && (
-              <Text style={styles.intro}>
-                Add your details for faster checkout and appointment booking.
-              </Text>
-            )}
-            <Field
-              label="Full name"
-              value={form.name}
-              onChangeText={name => setForm(f => ({ ...f, name }))}
-              placeholder="e.g. Nusrat Jahan"
-              autoCapitalize="words"
-              error={errors.name}
-            />
-            <Field
-              label="Mobile number"
-              value={form.phone}
-              onChangeText={phone => setForm(f => ({ ...f, phone }))}
-              placeholder="01XXXXXXXXX"
-              keyboardType="phone-pad"
-              error={errors.phone}
-            />
-            <Field
-              label="Email (optional)"
-              value={form.email}
-              onChangeText={email => setForm(f => ({ ...f, email }))}
-              placeholder="you@example.com"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              error={errors.email}
-            />
-            <GoldButton title="Save" onPress={save} style={styles.saveBtn} />
-            {profile && (
-              <OutlineButton
-                title="Cancel"
-                onPress={() => {
-                  setForm(profile);
-                  setErrors({});
-                  setEditing(false);
-                }}
-                style={styles.saveBtn}
-              />
-            )}
-          </ScrollView>
-        </KeyboardAvoidingView>
+          <Text style={styles.registerText}>
+            New here? <Text style={styles.bold}>Create an account</Text>
+          </Text>
+        </Pressable>
       </Screen>
     );
   }
+
+  if (mode === 'edit') {
+    return <EditProfile onDone={() => setMode('view')} />;
+  }
+  if (mode === 'password') {
+    return <ChangePassword onDone={() => setMode('view')} />;
+  }
+
+  const defaultAddress =
+    addresses.data?.find(a => a.isDefault) ?? addresses.data?.[0];
 
   const links: {
     icon: IconName;
     label: string;
     count?: number;
-    route: 'Orders' | 'Appointments' | 'Wishlist' | 'Help';
+    onPress: () => void;
   }[] = [
-    { icon: 'box', label: 'My Orders', count: orders.length, route: 'Orders' },
+    {
+      icon: 'box',
+      label: 'My Orders',
+      count: orders.data?.length,
+      onPress: () => navigation.navigate('Orders'),
+    },
     {
       icon: 'calendar',
       label: 'My Appointments',
-      count: appointments.length,
-      route: 'Appointments',
+      count: appointments.data?.length,
+      onPress: () => navigation.navigate('Appointments'),
     },
     {
       icon: 'heart',
       label: 'Wishlist',
-      count: wishlist.length,
-      route: 'Wishlist',
+      count: wishlist.data?.productIds.length,
+      onPress: () => navigation.navigate('Wishlist'),
     },
-    { icon: 'help', label: 'Help & Support', route: 'Help' },
+    {
+      icon: 'pin',
+      label: 'Saved Addresses',
+      count: addresses.data?.length,
+      onPress: () => navigation.navigate('Addresses'),
+    },
+    {
+      icon: 'edit',
+      label: 'Change Password',
+      onPress: () => setMode('password'),
+    },
+    {
+      icon: 'help',
+      label: 'Help & Support',
+      onPress: () => navigation.navigate('Help'),
+    },
   ];
+
+  const confirmSignOut = () =>
+    Alert.alert('Sign out?', 'You can sign in again any time.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Sign out', style: 'destructive', onPress: () => signOut() },
+    ]);
 
   return (
     <Screen>
       <StackHeader
         title="My Profile"
         right={
-          <Pressable hitSlop={8} onPress={() => setEditing(true)}>
+          <Pressable hitSlop={8} onPress={() => setMode('edit')}>
             <Icon name="edit" size={22} color={colors.brown} />
           </Pressable>
         }
@@ -181,21 +140,19 @@ export default function ProfileScreen({
         <View style={styles.hero}>
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>
-              {profile!.name.charAt(0).toUpperCase()}
+              {user.name.charAt(0).toUpperCase()}
             </Text>
           </View>
-          <Text style={styles.name}>{profile!.name}</Text>
-          <Text style={styles.meta}>{profile!.phone}</Text>
-          {!!profile!.email && (
-            <Text style={styles.meta}>{profile!.email}</Text>
-          )}
+          <Text style={styles.name}>{user.name}</Text>
+          <Text style={styles.meta}>{user.phone}</Text>
+          {!!user.email && <Text style={styles.meta}>{user.email}</Text>}
         </View>
 
         <Card style={styles.linksCard}>
           {links.map((l, i) => (
             <Pressable
-              key={l.route}
-              onPress={() => navigation.navigate(l.route)}
+              key={l.label}
+              onPress={l.onPress}
               style={[styles.link, i < links.length - 1 && styles.linkBorder]}
             >
               <Icon name={l.icon} size={21} />
@@ -206,22 +163,15 @@ export default function ProfileScreen({
           ))}
         </Card>
 
-        <SectionTitle>Saved address</SectionTitle>
-        <Card>
-          {address ? (
-            <>
-              <Text style={styles.addrName}>{address.fullName}</Text>
-              <Text style={styles.addr}>{address.phone}</Text>
-              <Text style={styles.addr}>
-                {address.line}, {address.city}
-              </Text>
-            </>
-          ) : (
+        {defaultAddress && (
+          <Card style={styles.addressCard}>
+            <Text style={styles.addressLabel}>DEFAULT ADDRESS</Text>
+            <Text style={styles.addrName}>{defaultAddress.fullName}</Text>
             <Text style={styles.addr}>
-              No saved address yet. It will be saved when you check out.
+              {defaultAddress.line}, {defaultAddress.city}
             </Text>
-          )}
-        </Card>
+          </Card>
+        )}
 
         <OutlineButton
           title="Sign Out"
@@ -235,16 +185,152 @@ export default function ProfileScreen({
   );
 }
 
+function EditProfile({ onDone }: { onDone: () => void }) {
+  const { user } = useAuth();
+  const update = useUpdateProfile();
+  const [name, setName] = useState(user?.name ?? '');
+  const [email, setEmail] = useState(user?.email ?? '');
+  const [errors, setErrors] = useState<{ name?: string; email?: string }>({});
+
+  const save = () => {
+    const e: typeof errors = {};
+    if (name.trim().length < 2) e.name = 'Please enter your name.';
+    if (email.trim() && !isValidEmail(email))
+      e.email = 'Enter a valid email address.';
+    setErrors(e);
+    if (Object.keys(e).length) return;
+    update.mutate(
+      { name: name.trim(), email: email.trim() },
+      {
+        onSuccess: onDone,
+        onError: err => Alert.alert('Could not save', errorMessage(err)),
+      },
+    );
+  };
+
+  return (
+    <Screen>
+      <StackHeader title="Edit Profile" icon="close" onBack={onDone} />
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Field
+            label="Full name"
+            value={name}
+            onChangeText={setName}
+            autoCapitalize="words"
+            error={errors.name}
+          />
+          <Field
+            label="Email (optional)"
+            value={email}
+            onChangeText={setEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            error={errors.email}
+          />
+          <Text style={styles.hint}>
+            Your mobile number ({user?.phone}) is your sign-in ID and can't be
+            changed here. Contact us if you need to change it.
+          </Text>
+          <GoldButton
+            title={update.isPending ? 'Saving…' : 'Save'}
+            onPress={save}
+            disabled={update.isPending}
+            style={styles.saveBtn}
+          />
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </Screen>
+  );
+}
+
+function ChangePassword({ onDone }: { onDone: () => void }) {
+  const change = useChangePassword();
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState('');
+
+  const save = () => {
+    if (next.length < 6)
+      return setError('New password must be at least 6 characters.');
+    if (next !== confirm) return setError('New passwords do not match.');
+    setError('');
+    change.mutate(
+      { currentPassword: current, newPassword: next },
+      {
+        onSuccess: () => {
+          Alert.alert(
+            'Password changed',
+            'Use your new password next time you sign in.',
+          );
+          onDone();
+        },
+        onError: e => setError(errorMessage(e)),
+      },
+    );
+  };
+
+  return (
+    <Screen>
+      <StackHeader title="Change Password" icon="close" onBack={onDone} />
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Field
+          label="Current password"
+          value={current}
+          onChangeText={setCurrent}
+          secureTextEntry
+          autoCapitalize="none"
+        />
+        <Field
+          label="New password"
+          value={next}
+          onChangeText={setNext}
+          secureTextEntry
+          autoCapitalize="none"
+        />
+        <Field
+          label="Confirm new password"
+          value={confirm}
+          onChangeText={setConfirm}
+          secureTextEntry
+          autoCapitalize="none"
+        />
+        {!!error && <Text style={styles.error}>{error}</Text>}
+        <GoldButton
+          title={change.isPending ? 'Saving…' : 'Change Password'}
+          onPress={save}
+          disabled={change.isPending}
+          style={styles.saveBtn}
+        />
+      </ScrollView>
+    </Screen>
+  );
+}
+
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   content: { padding: 16, paddingBottom: 40 },
-  intro: {
-    fontSize: 14,
-    color: colors.brownSoft,
-    marginBottom: 18,
-    lineHeight: 20,
-  },
+  bold: { fontWeight: '700', color: colors.gold },
+  registerLink: { alignItems: 'center', marginTop: 16 },
+  registerText: { color: colors.textMuted, fontSize: 14 },
   saveBtn: { marginTop: 10 },
+  hint: {
+    fontSize: 12.5,
+    color: colors.textMuted,
+    lineHeight: 18,
+    marginBottom: 8,
+  },
+  error: { color: colors.price, fontSize: 13, marginBottom: 8 },
   hero: { alignItems: 'center', paddingVertical: 10 },
   avatar: {
     width: 84,
@@ -288,6 +374,14 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 10,
     overflow: 'hidden',
+  },
+  addressCard: { marginTop: 14 },
+  addressLabel: {
+    fontSize: 11,
+    letterSpacing: 1.5,
+    color: colors.gold,
+    fontWeight: '600',
+    marginBottom: 6,
   },
   addrName: { fontSize: 15, fontWeight: '600', color: colors.text },
   addr: { fontSize: 13.5, color: colors.brownSoft, marginTop: 3 },

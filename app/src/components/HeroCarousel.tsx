@@ -17,7 +17,8 @@ import Svg, {
   Stop,
 } from 'react-native-svg';
 import Icon from './Icon';
-import { HeroSlide, heroSlides } from '../data';
+import { Banner } from '../api/types';
+import { imageUri } from '../api/config';
 import { colors, SCREEN_WIDTH, serifItalic } from '../theme';
 
 const SLIDE_WIDTH = SCREEN_WIDTH - 32;
@@ -28,10 +29,14 @@ const AUTO_PLAY_MS = 4500;
 const PANEL_PATH = 'M0 0H57C51 18 60 34 55 52 50 70 50 86 56 100H0Z';
 const EDGE_PATH = 'M57 0C51 18 60 34 55 52 50 70 50 86 56 100';
 
-function Slide({ slide, onPress }: { slide: HeroSlide; onPress?: () => void }) {
+function Slide({ slide, onPress }: { slide: Banner; onPress?: () => void }) {
   return (
     <View style={styles.slide}>
-      <Image source={slide.image} style={styles.photo} resizeMode="cover" />
+      <Image
+        source={{ uri: imageUri(slide.imageUrl) }}
+        style={styles.photo}
+        resizeMode="cover"
+      />
       <Svg
         pointerEvents="none"
         style={StyleSheet.absoluteFill}
@@ -82,13 +87,20 @@ function Slide({ slide, onPress }: { slide: HeroSlide; onPress?: () => void }) {
   );
 }
 
-export default function HeroCarousel({ onShop }: { onShop?: () => void }) {
-  const listRef = useRef<FlatList<HeroSlide>>(null);
+export default function HeroCarousel({
+  banners,
+  onOpen,
+}: {
+  banners?: Banner[];
+  onOpen?: (banner: Banner) => void;
+}) {
+  const heroSlides = banners ?? [];
+  const listRef = useRef<FlatList<Banner>>(null);
   const [index, setIndex] = useState(0);
   const [dragging, setDragging] = useState(false);
 
   useEffect(() => {
-    if (dragging) {
+    if (dragging || heroSlides.length < 2) {
       return;
     }
     const timer = setInterval(() => {
@@ -100,12 +112,16 @@ export default function HeroCarousel({ onShop }: { onShop?: () => void }) {
       setIndex(next);
     }, AUTO_PLAY_MS);
     return () => clearInterval(timer);
-  }, [index, dragging]);
+  }, [index, dragging, heroSlides.length]);
 
   const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     setIndex(Math.round(e.nativeEvent.contentOffset.x / SLIDE_WIDTH));
     setDragging(false);
   };
+
+  if (!banners) {
+    return <View style={[styles.wrapper, styles.slide]} />;
+  }
 
   return (
     <View style={styles.wrapper}>
@@ -119,7 +135,9 @@ export default function HeroCarousel({ onShop }: { onShop?: () => void }) {
         onScrollBeginDrag={() => setDragging(true)}
         onScrollEndDrag={() => setDragging(false)}
         onMomentumScrollEnd={onMomentumEnd}
-        renderItem={({ item }) => <Slide slide={item} onPress={onShop} />}
+        renderItem={({ item }) => (
+          <Slide slide={item} onPress={() => onOpen?.(item)} />
+        )}
         getItemLayout={(_, i) => ({
           length: SLIDE_WIDTH,
           offset: SLIDE_WIDTH * i,

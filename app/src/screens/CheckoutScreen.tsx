@@ -1,5 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -22,19 +24,26 @@ import {
   StackHeader,
   SummaryRow,
 } from '../components/ui';
-import { Address, PaymentMethod, useStore } from '../context/StoreContext';
+import { useCart } from '../context/CartContext';
+import { useAuth } from '../context/AuthContext';
 import {
+  useAddresses,
+  usePlaceOrder,
+  useQuote,
+  useSettings,
+} from '../api/hooks';
+import { errorMessage } from '../api/client';
+import {
+  Address,
+  AddressInput,
   DeliveryArea,
-  deliveryFees,
-  PromoCode,
-  promoCodes,
-  storeConfig,
-} from '../config';
+  PaymentMethod,
+} from '../api/types';
 import { RootScreenProps } from '../navigation/types';
 import { colors, formatPrice } from '../theme';
 import { isValidPhone } from '../utils';
 
-type Errors = Partial<Record<keyof Address | 'trxId', string>>;
+type Errors = Partial<Record<keyof AddressInput | 'trxId', string>>;
 
 const PAYMENTS: {
   id: PaymentMethod;
@@ -43,72 +52,98 @@ const PAYMENTS: {
   icon: IconName;
 }[] = [
   {
-    id: 'cod',
+    id: 'COD',
     title: 'Cash on Delivery',
     text: 'Pay in cash when your order arrives',
     icon: 'cash',
   },
   {
-    id: 'bkash',
+    id: 'BKASH',
     title: 'bKash',
     text: 'Pay now with bKash Send Money',
     icon: 'wallet',
   },
 ];
 
+const emptyForm: AddressInput = {
+  fullName: '',
+  phone: '',
+  area: 'INSIDE_DHAKA',
+  city: 'Dhaka',
+  line: '',
+  note: '',
+};
+
+const fromAddress = (a: Address): AddressInput => ({
+  fullName: a.fullName,
+  phone: a.phone,
+  area: a.area,
+  city: a.city,
+  line: a.line,
+  note: a.note ?? '',
+});
+
 export default function CheckoutScreen({
   navigation,
 }: RootScreenProps<'Checkout'>) {
   const insets = useSafeAreaInsets();
-  const { cart, cartTotal, profile, address, saveAddress, placeOrder } =
-    useStore();
+  const cart = useCart();
+  const { user } = useAuth();
+  const settings = useSettings();
+  const addresses = useAddresses();
+  const placeOrder = usePlaceOrder();
 
-  const [form, setForm] = useState<Address>(
-    address ?? {
-      fullName: profile?.name ?? '',
-      phone: profile?.phone ?? '',
-      area: 'inside',
-      city: 'Dhaka',
-      line: '',
-      note: '',
-    },
-  );
+  const [form, setForm] = useState<AddressInput>(emptyForm);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [remember, setRemember] = useState(true);
-  const [payment, setPayment] = useState<PaymentMethod>('cod');
+  const [payment, setPayment] = useState<PaymentMethod>('COD');
   const [trxId, setTrxId] = useState('');
   const [promoInput, setPromoInput] = useState('');
-  const [promo, setPromo] = useState<PromoCode | null>(null);
-  const [promoError, setPromoError] = useState('');
+  const [promoCode, setPromoCode] = useState<string | undefined>();
   const [errors, setErrors] = useState<Errors>({});
   const placed = useRef(false);
 
-  // If the bag is emptied elsewhere, there is nothing to check out.
+  // Start from the default saved address.
+  const prefilled = useRef(false);
   useEffect(() => {
-    if (cart.length === 0 && !placed.current) {
+    if (!prefilled.current && addresses.data) {
+      prefilled.current = true;
+      const def = addresses.data.find(a => a.isDefault) ?? addresses.data[0];
+      if (def) {
+        setForm(fromAddress(def));
+        setSelectedId(def.id);
+      } else if (user) {
+        setForm(f => ({ ...f, fullName: user.name, phone: user.phone }));
+      }
+    }
+  }, [addresses.data, user]);
+
+  // Nothing to check out if the bag was emptied.
+  useEffect(() => {
+    if (cart.items.length === 0 && !placed.current) {
       navigation.goBack();
     }
-  }, [cart.length, navigation]);
+  }, [cart.items.length, navigation]);
 
-  const set = (key: keyof Address) => (value: string) =>
-    setForm(f => ({ ...f, [key]: value }));
+  const lines = useMemo(
+    () =>
+      cart.items.map(i => ({ productId: i.productId, quantity: i.quantity })),
+    [cart.items],
+  );
+  const quote = useQuote(lines, form.area, promoCode);
+  const q = quote.data;
 
-  const deliveryFee = promo?.freeDelivery ? 0 : deliveryFees[form.area];
-  const discount = promo?.percentOff
-    ? Math.round((cartTotal * promo.percentOff) / 100)
-    : 0;
-  const total = cartTotal + deliveryFee - discount;
-
-  const applyPromo = () => {
-    const found = promoCodes.find(
-      p => p.code === promoInput.trim().toUpperCase(),
-    );
-    if (found) {
-      setPromo(found);
-      setPromoError('');
-    } else {
-      setPromo(null);
-      setPromoError('This promo code is not valid.');
+  // Keep the bag's stored prices in line with the server.
+  const { sync } = cart;
+  useEffect(() => {
+    if (q) {
+      sync(q.lines);
     }
+  }, [q, sync]);
+
+  const set = (key: keyof AddressInput) => (value: string) => {
+    setSelectedId(null);
+    setForm(f => ({ ...f, [key]: value }));
   };
 
   const validate = () => {
@@ -125,59 +160,64 @@ export default function CheckoutScreen({
     if (form.line.trim().length < 6) {
       e.line = 'Please enter your full address (house, road, area).';
     }
-    if (payment === 'bkash' && trxId.trim().length < 6) {
-      e.trxId = 'Enter the bKash Transaction ID from your payment SMS.';
+    if (payment === 'BKASH' && !/^[A-Za-z0-9]{8,12}$/.test(trxId.trim())) {
+      e.trxId = 'Enter the 8–12 character Transaction ID from your bKash SMS.';
     }
     setErrors(e);
     return Object.keys(e).length === 0;
   };
 
   const submit = () => {
-    if (!validate()) {
+    if (!validate() || !q) {
       return;
     }
-    const cleaned: Address = {
-      ...form,
-      fullName: form.fullName.trim(),
-      phone: form.phone.trim(),
-      city: form.city.trim(),
-      line: form.line.trim(),
-      note: form.note.trim(),
-    };
-    placed.current = true;
-    if (remember) {
-      saveAddress(cleaned);
-    }
-    const order = placeOrder({
-      subtotal: cartTotal,
-      deliveryFee,
-      discount,
-      total,
-      promoCode: promo?.code,
-      address: cleaned,
-      payment:
-        payment === 'bkash'
-          ? { method: 'bkash', trxId: trxId.trim().toUpperCase() }
-          : { method: 'cod' },
-    });
-    navigation.replace('OrderSuccess', { orderId: order.id });
+    placeOrder.mutate(
+      {
+        items: lines,
+        address: {
+          ...form,
+          fullName: form.fullName.trim(),
+          phone: form.phone.trim(),
+          city: form.city.trim(),
+          line: form.line.trim(),
+          note: form.note?.trim() || undefined,
+        },
+        saveAddress: remember && !selectedId,
+        paymentMethod: payment,
+        bkashTrxId: payment === 'BKASH' ? trxId.trim() : undefined,
+        promoCode: q.promo?.code,
+      },
+      {
+        onSuccess: order => {
+          placed.current = true;
+          cart.clear();
+          navigation.replace('OrderSuccess', { orderId: order.id });
+        },
+        onError: e => {
+          Alert.alert('Could not place order', errorMessage(e));
+          quote.refetch();
+        },
+      },
+    );
   };
 
-  const areaChip = (area: DeliveryArea, label: string) => {
+  const areaChip = (area: DeliveryArea, label: string, fee?: number) => {
     const active = form.area === area;
     return (
       <Pressable
-        onPress={() => setForm(f => ({ ...f, area }))}
+        onPress={() => set('area')(area)}
         style={[styles.areaChip, active && styles.areaChipActive]}
       >
         <Text style={[styles.areaTitle, active && styles.onGold]}>{label}</Text>
         <Text style={[styles.areaFee, active && styles.onGold]}>
-          {formatPrice(deliveryFees[area])} ·{' '}
-          {area === 'inside' ? '1–3' : '3–5'} days
+          {fee !== undefined ? formatPrice(fee) : '…'} ·{' '}
+          {area === 'INSIDE_DHAKA' ? '1–3' : '3–5'} days
         </Text>
       </Pressable>
     );
   };
+
+  const blocked = !q || q.errors.length > 0;
 
   return (
     <Screen>
@@ -192,6 +232,49 @@ export default function CheckoutScreen({
           showsVerticalScrollIndicator={false}
         >
           <SectionTitle>Delivery address</SectionTitle>
+          {!!addresses.data?.length && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.saved}
+            >
+              {addresses.data.map(a => {
+                const active = a.id === selectedId;
+                return (
+                  <Pressable
+                    key={a.id}
+                    onPress={() => {
+                      setForm(fromAddress(a));
+                      setSelectedId(a.id);
+                      setErrors({});
+                    }}
+                    style={[styles.savedCard, active && styles.savedActive]}
+                  >
+                    <Text style={styles.savedName} numberOfLines={1}>
+                      {a.fullName}
+                    </Text>
+                    <Text style={styles.savedLine} numberOfLines={2}>
+                      {a.line}, {a.city}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+              <Pressable
+                onPress={() => {
+                  setForm(f => ({
+                    ...emptyForm,
+                    fullName: f.fullName,
+                    phone: f.phone,
+                  }));
+                  setSelectedId(null);
+                }}
+                style={[styles.savedCard, styles.newCard]}
+              >
+                <Icon name="plus" size={20} />
+                <Text style={styles.savedLine}>New address</Text>
+              </Pressable>
+            </ScrollView>
+          )}
           <Field
             label="Full name"
             value={form.fullName}
@@ -210,8 +293,16 @@ export default function CheckoutScreen({
           />
           <Text style={styles.fieldLabel}>Delivery area</Text>
           <View style={styles.areaRow}>
-            {areaChip('inside', 'Inside Dhaka')}
-            {areaChip('outside', 'Outside Dhaka')}
+            {areaChip(
+              'INSIDE_DHAKA',
+              'Inside Dhaka',
+              settings.data?.deliveryInside,
+            )}
+            {areaChip(
+              'OUTSIDE_DHAKA',
+              'Outside Dhaka',
+              settings.data?.deliveryOutside,
+            )}
           </View>
           <Field
             label="City / District"
@@ -231,19 +322,21 @@ export default function CheckoutScreen({
           />
           <Field
             label="Order note (optional)"
-            value={form.note}
+            value={form.note ?? ''}
             onChangeText={set('note')}
             placeholder="e.g. Please call before delivery"
           />
-          <View style={styles.rememberRow}>
-            <Text style={styles.rememberText}>Save this address</Text>
-            <Switch
-              value={remember}
-              onValueChange={setRemember}
-              trackColor={{ true: colors.gold, false: colors.border }}
-              thumbColor={colors.white}
-            />
-          </View>
+          {!selectedId && (
+            <View style={styles.rememberRow}>
+              <Text style={styles.rememberText}>Save this address</Text>
+              <Switch
+                value={remember}
+                onValueChange={setRemember}
+                trackColor={{ true: colors.gold, false: colors.border }}
+                thumbColor={colors.white}
+              />
+            </View>
+          )}
 
           <SectionTitle>Payment method</SectionTitle>
           {PAYMENTS.map(p => {
@@ -267,15 +360,21 @@ export default function CheckoutScreen({
               </Pressable>
             );
           })}
-          {payment === 'bkash' && (
+          {payment === 'BKASH' && (
             <Card style={styles.bkash}>
               <Text style={styles.bkashStep}>
                 1. Open bKash and choose{' '}
                 <Text style={styles.bold}>Send Money</Text>
               </Text>
               <Text style={styles.bkashStep}>
-                2. Send <Text style={styles.bold}>{formatPrice(total)}</Text> to{' '}
-                <Text style={styles.bold}>{storeConfig.bkashNumber}</Text>
+                2. Send{' '}
+                <Text style={styles.bold}>
+                  {q ? formatPrice(q.total) : '…'}
+                </Text>{' '}
+                to{' '}
+                <Text style={styles.bold}>
+                  {settings.data?.bkashNumber ?? '…'}
+                </Text>
               </Text>
               <Text style={styles.bkashStep}>
                 3. Enter the Transaction ID from your bKash SMS below
@@ -285,7 +384,7 @@ export default function CheckoutScreen({
                 value={trxId}
                 onChangeText={setTrxId}
                 placeholder="e.g. 9A7B6C5D4E"
-                autoCapitalize="none"
+                autoCapitalize="characters"
                 error={errors.trxId}
               />
             </Card>
@@ -304,54 +403,97 @@ export default function CheckoutScreen({
                 style={styles.promoText}
               />
             </View>
-            <Pressable onPress={applyPromo} style={styles.applyBtn}>
-              <Text style={styles.applyText}>Apply</Text>
-            </Pressable>
+            {promoCode ? (
+              <Pressable
+                onPress={() => {
+                  setPromoCode(undefined);
+                  setPromoInput('');
+                }}
+                style={[styles.applyBtn, styles.removeBtn]}
+              >
+                <Text style={styles.removeText}>Remove</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={() =>
+                  promoInput.trim() &&
+                  setPromoCode(promoInput.trim().toUpperCase())
+                }
+                style={styles.applyBtn}
+              >
+                <Text style={styles.applyText}>Apply</Text>
+              </Pressable>
+            )}
           </View>
-          {promo && (
+          {q?.promo && (
             <Text style={styles.promoOk}>
-              ✓ {promo.code} applied — {promo.label}
+              ✓ {q.promo.code} applied — {q.promo.description}
             </Text>
           )}
-          {!!promoError && <Text style={styles.promoErr}>{promoError}</Text>}
+          {!!promoCode && q?.promoError && (
+            <Text style={styles.promoErr}>{q.promoError}</Text>
+          )}
 
           <SectionTitle>Order summary</SectionTitle>
           <Card>
-            {cart.map(i => (
-              <View key={i.product.id} style={styles.line}>
-                <ProductThumb source={i.product.image} width={44} height={50} />
-                <View style={styles.flex}>
-                  <Text style={styles.lineName} numberOfLines={1}>
-                    {i.product.name} {i.product.subtitle}
-                  </Text>
-                  <Text style={styles.lineQty}>
-                    {i.quantity} × {formatPrice(i.product.price)}
-                  </Text>
-                </View>
-                <Text style={styles.lineTotal}>
-                  {formatPrice(i.quantity * i.product.price)}
-                </Text>
-              </View>
-            ))}
-            <View style={styles.divider} />
-            <SummaryRow label="Subtotal" value={formatPrice(cartTotal)} />
-            <SummaryRow
-              label={`Delivery (${
-                form.area === 'inside' ? 'Inside' : 'Outside'
-              } Dhaka)`}
-              value={deliveryFee ? formatPrice(deliveryFee) : 'Free'}
-              accent={!deliveryFee}
-            />
-            {discount > 0 && (
-              <SummaryRow
-                label={`Discount (${promo?.code})`}
-                value={`− ${formatPrice(discount)}`}
-                accent
-              />
-            )}
-            <View style={styles.divider} />
-            <SummaryRow label="Total" value={formatPrice(total)} strong />
+            {quote.isLoading && !q ? (
+              <ActivityIndicator color={colors.gold} style={styles.loading} />
+            ) : quote.error && !q ? (
+              <Text style={styles.promoErr}>{errorMessage(quote.error)}</Text>
+            ) : q ? (
+              <>
+                {q.lines.map(l => (
+                  <View key={l.productId} style={styles.line}>
+                    <ProductThumb source={l.imageUrl} width={44} height={50} />
+                    <View style={styles.flex}>
+                      <Text style={styles.lineName} numberOfLines={1}>
+                        {l.name} {l.subtitle}
+                      </Text>
+                      <Text
+                        style={[styles.lineQty, !l.available && styles.lineBad]}
+                      >
+                        {l.available
+                          ? `${l.quantity} × ${formatPrice(l.price)}`
+                          : l.stock > 0
+                          ? `Only ${l.stock} left — reduce quantity in your bag`
+                          : 'Out of stock — remove from your bag'}
+                      </Text>
+                    </View>
+                    <Text style={styles.lineTotal}>
+                      {formatPrice(l.lineTotal)}
+                    </Text>
+                  </View>
+                ))}
+                <View style={styles.divider} />
+                <SummaryRow label="Subtotal" value={formatPrice(q.subtotal)} />
+                <SummaryRow
+                  label={`Delivery (${
+                    form.area === 'INSIDE_DHAKA' ? 'Inside' : 'Outside'
+                  } Dhaka)`}
+                  value={q.deliveryFee ? formatPrice(q.deliveryFee) : 'Free'}
+                  accent={!q.deliveryFee}
+                />
+                {q.discount > 0 && (
+                  <SummaryRow
+                    label={`Discount (${q.promo?.code})`}
+                    value={`− ${formatPrice(q.discount)}`}
+                    accent
+                  />
+                )}
+                <View style={styles.divider} />
+                <SummaryRow label="Total" value={formatPrice(q.total)} strong />
+              </>
+            ) : null}
           </Card>
+          {!!q?.errors.length && (
+            <View style={styles.errorBox}>
+              {q.errors.map(e => (
+                <Text key={e} style={styles.errorText}>
+                  • {e}
+                </Text>
+              ))}
+            </View>
+          )}
         </ScrollView>
 
         <View
@@ -361,8 +503,13 @@ export default function CheckoutScreen({
           ]}
         >
           <GoldButton
-            title={`Place Order · ${formatPrice(total)}`}
+            title={
+              placeOrder.isPending
+                ? 'Placing order…'
+                : `Place Order · ${q ? formatPrice(q.total) : '…'}`
+            }
             onPress={submit}
+            disabled={blocked || placeOrder.isPending}
           />
         </View>
       </KeyboardAvoidingView>
@@ -373,6 +520,25 @@ export default function CheckoutScreen({
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   content: { paddingHorizontal: 16, paddingBottom: 24 },
+  loading: { marginVertical: 20 },
+  saved: { gap: 10, paddingBottom: 14 },
+  savedCard: {
+    width: 170,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  savedActive: { borderColor: colors.gold, backgroundColor: '#FBF0E2' },
+  newCard: {
+    width: 110,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  savedName: { fontSize: 14, fontWeight: '600', color: colors.text },
+  savedLine: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
   fieldLabel: {
     fontSize: 13,
     color: colors.brownSoft,
@@ -462,6 +628,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   applyText: { color: colors.white, fontWeight: '600' },
+  removeBtn: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  removeText: { color: colors.price, fontWeight: '600' },
   promoOk: { color: '#2E7D4F', marginTop: 8, fontSize: 13 },
   promoErr: { color: colors.price, marginTop: 8, fontSize: 13 },
   line: {
@@ -472,12 +644,20 @@ const styles = StyleSheet.create({
   },
   lineName: { fontSize: 13.5, color: colors.text },
   lineQty: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+  lineBad: { color: colors.price },
   lineTotal: { fontSize: 14, fontWeight: '600', color: colors.text },
   divider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: colors.border,
     marginVertical: 10,
   },
+  errorBox: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: '#F8E0E2',
+  },
+  errorText: { color: colors.price, fontSize: 13, lineHeight: 19 },
   footer: {
     paddingHorizontal: 16,
     paddingTop: 12,
